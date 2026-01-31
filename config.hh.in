@@ -1,0 +1,9 @@
+#ifndef _CONFIG_HH
+#define _CONFIG_HH 1
+
+#define PROJECT "${CMAKE_PROJECT_NAME}"
+#define VERSION "${CMAKE_PROJECT_VERSION}"
+#define BUGREPORT "${CMAKE_PROJECT_HOMEPAGE_URL}/issues"
+#define YEAR  "${CMAKE_PROJECT_YEAR}"
+
+#endif // config.hh
