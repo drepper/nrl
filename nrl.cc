@@ -168,7 +168,7 @@ namespace nrl {
     using key_function = bool (*)(state&);
 
 
-    bool cb_home(state& s)
+    bool cb_beginning_of_line(state& s)
     {
       if (s.offset != 0) {
         s.pos_x = s.prompt_len;
@@ -179,7 +179,7 @@ namespace nrl {
       return false;
     }
 
-    bool cb_end(state& s)
+    bool cb_end_of_line(state& s)
     {
       if (s.offset != s.buffer.size()) {
         s.pos_y = s.line_offset.size() - 1;
@@ -202,7 +202,7 @@ namespace nrl {
       return true;
     }
 
-    bool cb_left(state& s)
+    bool cb_backward_char(state& s)
     {
       if (s.offset > 0) {
         ucs4_t uc;
@@ -224,7 +224,7 @@ namespace nrl {
       return false;
     }
 
-    bool cb_right(state& s)
+    bool cb_forward_char(state& s)
     {
       if (s.offset < s.buffer.size()) {
         ucs4_t uc;
@@ -245,7 +245,7 @@ namespace nrl {
       return false;
     }
 
-    bool cb_up(state& s)
+    bool cb_previous_screen_line(state& s)
     {
       if (s.pos_y > 0) {
         if (s.pos_y > 1 || s.requested_pos_x > s.prompt_len) {
@@ -259,7 +259,7 @@ namespace nrl {
       return false;
     }
 
-    bool cb_down(state& s)
+    bool cb_next_screen_line(state& s)
     {
       if (s.pos_y + 1 < s.line_offset.size()) {
         s.pos_y += 1;
@@ -274,7 +274,7 @@ namespace nrl {
     {
       if (s.offset > 0) {
         auto old_offset = s.offset;
-        (void) cb_left(s);
+        (void) cb_backward_char(s);
         assert(s.offset != old_offset);
         s.buffer.erase(s.buffer.begin() + s.offset, s.buffer.begin() + old_offset);
         s.nchars -= 1;
@@ -371,16 +371,16 @@ namespace nrl {
 
     // clang-format off
     std::map<key, key_function> key_map{
-      {{false, ::TERMKEY_KEYMOD_CTRL, 'a'}, cb_home},
-      {{true, 0, ::TERMKEY_SYM_HOME}, cb_home},
-      {{false, ::TERMKEY_KEYMOD_CTRL, 'e'}, cb_end},
-      {{true, 0, ::TERMKEY_SYM_END}, cb_end},
+      {{false, ::TERMKEY_KEYMOD_CTRL, 'a'}, cb_beginning_of_line},
+      {{true, 0, ::TERMKEY_SYM_HOME}, cb_beginning_of_line},
+      {{false, ::TERMKEY_KEYMOD_CTRL, 'e'}, cb_end_of_line},
+      {{true, 0, ::TERMKEY_SYM_END}, cb_end_of_line},
       {{true, 0, ::TERMKEY_SYM_INSERT}, cb_insert},
       {{true, 0, ::TERMKEY_SYM_ENTER}, cb_enter},
-      {{true, 0, ::TERMKEY_SYM_LEFT}, cb_left},
-      {{true, 0, ::TERMKEY_SYM_RIGHT}, cb_right},
-      {{true, 0, ::TERMKEY_SYM_UP}, cb_up},
-      {{true, 0, ::TERMKEY_SYM_DOWN}, cb_down},
+      {{true, 0, ::TERMKEY_SYM_LEFT}, cb_backward_char},
+      {{true, 0, ::TERMKEY_SYM_RIGHT}, cb_forward_char},
+      {{true, 0, ::TERMKEY_SYM_UP}, cb_previous_screen_line},
+      {{true, 0, ::TERMKEY_SYM_DOWN}, cb_next_screen_line},
       {{true, 0, ::TERMKEY_SYM_BACKSPACE}, cb_backspace},
       {{true, 0, ::TERMKEY_SYM_DELETE}, cb_delete},
       {{false, 2, 'b'}, cb_backward_word},
