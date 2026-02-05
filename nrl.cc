@@ -23,6 +23,7 @@ import std;
 #include <sys/ioctl.h>
 #include <sys/signalfd.h>
 
+#include <unictype.h>
 #include <unistr.h>
 
 // Debug
@@ -301,6 +302,73 @@ namespace nrl {
       return false;
     }
 
+    bool cb_backward_word(state& s)
+    {
+      if (s.offset > 0) {
+        auto cat = uc_general_category_or(UC_LETTER, UC_NUMBER);
+        ucs4_t uc1;
+        auto p = ::u8_prev(&uc1, s.buffer.data() + s.offset, s.buffer.data());
+        while (p > s.buffer.data()) {
+          ucs4_t uc2;
+          auto q = ::u8_prev(&uc2, p, s.buffer.data());
+          if (::uc_is_general_category(uc1, cat) && ! ::uc_is_general_category(uc2, cat))
+            break;
+          p = q;
+          uc1 = uc2;
+        }
+
+        s.offset = p - s.buffer.data();
+        while (s.line_offset[s.pos_y] > s.offset) {
+          assert(s.pos_y > 0);
+          --s.pos_y;
+        }
+        s.pos_x = ::u8_mbsnlen(s.buffer.data() + s.line_offset[s.pos_y], s.offset - s.line_offset[s.pos_y]);
+        if (s.pos_y == 0)
+          s.pos_x += s.prompt_len;
+        s.requested_pos_x = s.pos_x;
+        move_to(s, s.pos_x, s.pos_y);
+      }
+      return false;
+    }
+
+    bool cb_forward_word(state& s)
+    {
+      if (s.offset + 1 < s.buffer.size()) {
+        auto cat = uc_general_category_or(UC_LETTER, UC_NUMBER);
+        ucs4_t uc1;
+        auto p = ::u8_next(&uc1, s.buffer.data() + s.offset);
+        if (p < s.buffer.data() + s.buffer.size()) {
+          auto q = ::u8_next(&uc1, p);
+          while (q <= s.buffer.data() + s.buffer.size()) {
+            if (q == s.buffer.data() + s.buffer.size()) {
+              p = q;
+              break;
+            }
+            ucs4_t uc2;
+            auto r = ::u8_next(&uc2, q);
+            if (::uc_is_general_category(uc1, cat) && ! ::uc_is_general_category(uc2, cat)) {
+              p = q;
+              break;
+            }
+            p = q;
+            q = r;
+            uc1 = uc2;
+          }
+        }
+
+        s.offset = p - s.buffer.data();
+        while (s.pos_y + 1 < s.line_offset.size() && s.offset >= s.line_offset[s.pos_y + 1])
+          ++s.pos_y;
+        s.pos_x = ::u8_mbsnlen(s.buffer.data() + s.line_offset[s.pos_y], s.offset - s.line_offset[s.pos_y]);
+        if (s.pos_y == 0)
+          s.pos_x += s.prompt_len;
+        s.requested_pos_x = s.pos_x;
+        move_to(s, s.pos_x, s.pos_y);
+      }
+      return false;
+    }
+
+
     // clang-format off
     std::map<key, key_function> key_map{
       {{false, ::TERMKEY_KEYMOD_CTRL, 'a'}, cb_home},
@@ -315,6 +383,8 @@ namespace nrl {
       {{true, 0, ::TERMKEY_SYM_DOWN}, cb_down},
       {{true, 0, ::TERMKEY_SYM_BACKSPACE}, cb_backspace},
       {{true, 0, ::TERMKEY_SYM_DELETE}, cb_delete},
+      {{false, 2, 'b'}, cb_backward_word},
+      {{false, 2, 'f'}, cb_forward_word},
     };
     // clang-format on
 
