@@ -1,4 +1,5 @@
 #include "nrl.hh"
+#include "termdetect/termdetect.hh"
 #include <iterator>
 
 #if defined __cpp_modules && __cpp_modules >= 201810L
@@ -66,6 +67,91 @@ namespace nrl {
       // point the visual functionality provided by this library cannot work anyway.  Return
       // something "normal".
       return {80u, 25u};
+    }
+
+
+    struct hsv_color {
+      uint8_t h;
+      uint8_t s;
+      uint8_t v;
+    };
+
+
+    // The conversion functions are taken from a StackOverflow posting by Leszek Szary
+    //    https://stackoverflow.com/a/14733008
+    // This code has been converted here to modern C++.
+    terminal::info::color hsv_to_rgb(hsv_color hsv)
+    {
+      terminal::info::color rgb{.r = hsv.v, .g = hsv.v, .b = hsv.v};
+
+      if (hsv.s != 0) {
+        uint8_t region = hsv.h / 43;
+        uint8_t remainder = (hsv.h - (region * 43)) * 6;
+
+        uint8_t p = (hsv.v * (255 - hsv.s)) >> 8;
+        uint8_t q = (hsv.v * (255 - ((hsv.s * remainder) >> 8))) >> 8;
+        uint8_t t = (hsv.v * (255 - ((hsv.s * (255 - remainder)) >> 8))) >> 8;
+
+        switch (region) {
+        case 0:
+          rgb = {.r = hsv.v, .g = t, .b = p};
+          break;
+        case 1:
+          rgb = {.r = q, .g = hsv.v, .b = p};
+          break;
+        case 2:
+          rgb = {.r = p, .g = hsv.v, .b = t};
+          break;
+        case 3:
+          rgb = {.r = p, .g = q, .b = hsv.v};
+          break;
+        case 4:
+          rgb = {.r = t, .g = p, .b = hsv.v};
+          break;
+        default:
+          rgb = {.r = hsv.v, .g = p, .b = q};
+          break;
+        }
+      }
+
+      return rgb;
+    }
+
+
+    hsv_color rgb_to_hsv(terminal::info::color rgb)
+    {
+      uint8_t rgb_min = std::min({rgb.r, rgb.g, rgb.b});
+      uint8_t rgb_max = std::max({rgb.r, rgb.g, rgb.b});
+
+      hsv_color hsv{.h = 0, .s = 0, .v = rgb_max};
+      if (hsv.v != 0) {
+        hsv.s = 255 * (rgb_max - rgb_min) / hsv.v;
+        if (hsv.s == 0)
+          hsv.h = 0;
+        else if (rgb_max == rgb.r)
+          hsv.h = 0 + 43 * (rgb.g - rgb.b) / (rgb_max - rgb_min);
+        else if (rgb_max == rgb.g)
+          hsv.h = 85 + 43 * (rgb.b - rgb.r) / (rgb_max - rgb_min);
+        else
+          hsv.h = 171 + 43 * (rgb.r - rgb.g) / (rgb_max - rgb_min);
+      }
+
+      return hsv;
+    }
+
+
+    std::tuple<terminal::info::color, terminal::info::color> adjust_rgb(terminal::info::color fg, terminal::info::color bg, unsigned adjust_val)
+    {
+      auto hsv_fg = rgb_to_hsv(fg);
+      auto hsv_bg = rgb_to_hsv(bg);
+      if (hsv_bg.v >= 128) {
+        hsv_fg.v = hsv_fg.v > adjust_val ? (hsv_fg.v - adjust_val) : 0;
+        hsv_bg.v -= adjust_val;
+      } else {
+        hsv_fg.v = hsv_fg.v < (255 - adjust_val) ? (hsv_fg.v + adjust_val) : 255;
+        hsv_bg.v += adjust_val;
+      }
+      return std::make_tuple(hsv_to_rgb(hsv_fg), hsv_to_rgb(hsv_bg));
     }
 
 
@@ -446,35 +532,15 @@ namespace nrl {
                   // Need to scroll.
                   assert(s.line_offset.size() - old_nlines == 1);
                   s.initial_row -= 1;
-                  static const char SU[] = "\e[S";
-                  if (s.cur_frame_lines == 0)
+                  if (s.cur_frame_lines != 0) {
+                    static const char SU[] = "\e[S";
                     ::write(s.fd, SU, strlen(SU));
-                  else {
-                    std::string frame;
-                    frame.append(SU);
-                    frame.append("\r\e[J\n");
-                    if (s.frame_highlight_fg != s.info->default_foreground)
-                      std::format_to(std::back_inserter(frame), "\e[38;2;{};{};{}m", s.frame_highlight_fg.r, s.frame_highlight_fg.g, s.frame_highlight_fg.b);
-                    auto f = (s.fl & state::flags::frame) == state::flags::frame_line ? "─" : "\N{LOWER HALF BLOCK}";
-                    for (size_t i = 0; i < s.term_cols; ++i)
-                      frame.append(f);
-                    if (s.frame_highlight_fg != s.info->default_foreground)
-                      frame.append("\e[0m");
-                    frame.append("\e[A\e[A");
-                    ::write(s.fd, frame.data(), frame.size());
                   }
+                  static const char rDL[] = "\r\e[1L";
+                  ::write(s.fd, rDL, strlen(rDL));
                 } else if (s.cur_frame_lines > 0) {
-                  std::string frame;
-                  frame.append("\n\e[J\n");
-                  if (s.frame_highlight_fg != s.info->default_foreground)
-                    std::format_to(std::back_inserter(frame), "\e[38;2;{};{};{}m", s.frame_highlight_fg.r, s.frame_highlight_fg.g, s.frame_highlight_fg.b);
-                  auto f = (s.fl & state::flags::frame) == state::flags::frame_line ? "─" : "\N{LOWER HALF BLOCK}";
-                  for (size_t i = 0; i < s.term_cols; ++i)
-                    frame.append(f);
-                  if (s.frame_highlight_fg != s.info->default_foreground)
-                    frame.append("\e[0m");
-                  frame.append("\e[A\e[A");
-                  ::write(s.fd, frame.data(), frame.size());
+                  static const char nDL[] = "\n\e[1L";
+                  ::write(s.fd, nDL, strlen(nDL));
                 }
               }
             } else {
@@ -687,6 +753,12 @@ namespace nrl {
   state::state(int fd_, flags fl_) : fd(fd_), fl(fl_), info(terminal::info::alloc(fd)), frame_highlight_fg(info->default_foreground), tk(::termkey_new(fd, 0)), tkfd(::termkey_get_fd(tk))
   {
     TERMKEY_CHECK_VERSION;
+
+    if ((fl & flags::frame) == flags::frame_background) {
+      // We use as foreground a slightly adjusted version of the default colors.
+      auto [fg, bg] = adjust_rgb(info->default_foreground, info->default_background, 40);
+      frame_highlight_fg = fg;
+    }
 
     sigset_t mask;
     sigemptyset(&mask);
