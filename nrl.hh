@@ -53,6 +53,8 @@ namespace nrl {
     unsigned term_cols = 0;
     unsigned cur_frame_lines = 0;
     terminal::info::color frame_highlight_fg{};
+    terminal::info::color text_default_fg{};
+    terminal::info::color text_default_bg{};
 
     TermKey* tk;
     int tkfd;

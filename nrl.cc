@@ -532,12 +532,8 @@ namespace nrl {
                   // Need to scroll.
                   assert(s.line_offset.size() - old_nlines == 1);
                   s.initial_row -= 1;
-                  if (s.cur_frame_lines != 0) {
-                    static const char SU[] = "\e[S";
-                    ::write(s.fd, SU, strlen(SU));
-                  }
-                  static const char rDL[] = "\r\e[1L";
-                  ::write(s.fd, rDL, strlen(rDL));
+                  static const char SUrDL[] = "\e[S\r\e[1L";
+                  ::write(s.fd, SUrDL, strlen(SUrDL));
                 } else if (s.cur_frame_lines > 0) {
                   static const char nDL[] = "\n\e[1L";
                   ::write(s.fd, nDL, strlen(nDL));
@@ -635,6 +631,11 @@ namespace nrl {
           frame.append("\e[1F");
           ::write(s.fd, frame.data(), frame.size());
           s.cur_frame_lines = 1;
+
+          if (s.text_default_fg != terminal::info::color{}) {
+            auto colsel = std::format("\e[38;2;{};{};{};48;2;{};{};{}m", s.text_default_fg.r, s.text_default_fg.g, s.text_default_fg.b, s.text_default_bg.r, s.text_default_bg.g, s.text_default_bg.b);
+            ::write(s.fd, colsel.data(), colsel.size());
+          }
         } else
           s.cur_frame_lines = 0;
 
@@ -670,6 +671,9 @@ namespace nrl {
           ::write(s.fd, osc133_B, strlen(osc133_B));
 
         s.pos_x = s.prompt_len;
+
+        // Clear to end of line.  This also fills in the background color, if needed.
+        ::write(s.fd, "\e[K", 3);
       }
 
       bool done = false;
@@ -740,6 +744,8 @@ namespace nrl {
           // TODO: query cursor position and also if necesary adjust what is visible
         }
       }
+      if (s.text_default_fg != terminal::info::color{})
+        ::write(s.fd, "\e[m", 3);
 
       if (s.term_state != fd_state::no_terminal && s.osc133)
         ::write(s.fd, osc133_C, strlen(osc133_C));
@@ -755,9 +761,11 @@ namespace nrl {
     TERMKEY_CHECK_VERSION;
 
     if ((fl & flags::frame) == flags::frame_background) {
-      // We use as foreground a slightly adjusted version of the default colors.
-      auto [fg, bg] = adjust_rgb(info->default_foreground, info->default_background, 40);
-      frame_highlight_fg = fg;
+      // We use as foreground a slightly adjusted version of the default background colors.
+      auto [fg, bg] = adjust_rgb(info->default_foreground, info->default_background, 32);
+      frame_highlight_fg = bg;
+      text_default_fg = fg;
+      text_default_bg = bg;
     }
 
     sigset_t mask;
