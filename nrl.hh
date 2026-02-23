@@ -1,3 +1,4 @@
+#include <utility>
 #ifndef NRL_HH_
 # define NRL_HH_ 1
 
@@ -10,12 +11,22 @@
 
 # include <termkey.h>
 
+# include "termdetect/termdetect.hh"
+
+
 namespace nrl {
 
   enum struct fd_state { open, no_terminal, closed };
 
   struct state {
-    state(int fd_);
+    enum struct flags {
+      none = 0,
+      frame_line = 1,
+      frame_background = 2,
+      frame = 3,
+    };
+
+    state(int fd_, flags fl_ = flags::none);
     state(const state&) = delete;
     state& operator=(const state&) = delete;
     ~state();
@@ -34,10 +45,14 @@ namespace nrl {
     std::variant<std::string, string_callback> prompt{""};
 
     int fd;
+    flags fl;
     fd_state term_state = fd_state::open;
+    std::shared_ptr<terminal::info> info;
 
     unsigned term_rows = 0;
     unsigned term_cols = 0;
+    unsigned cur_frame_lines = 0;
+    terminal::info::color frame_highlight_fg{};
 
     TermKey* tk;
     int tkfd;
@@ -67,6 +82,16 @@ namespace nrl {
 
     friend std::string_view read(state&);
   };
+
+
+  inline state::flags operator&(state::flags l, state::flags r)
+  {
+    return static_cast<state::flags>(std::to_underlying(l) & std::to_underlying(r));
+  }
+  inline state::flags operator|(state::flags l, state::flags r)
+  {
+    return static_cast<state::flags>(std::to_underlying(l) | std::to_underlying(r));
+  }
 
 
   std::string_view read(state& c);

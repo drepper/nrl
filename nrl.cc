@@ -1,6 +1,5 @@
 #include "nrl.hh"
-#include <compare>
-#include <unitypes.h>
+#include <iterator>
 
 #if defined __cpp_modules && __cpp_modules >= 201810L
 import std;
@@ -9,9 +8,12 @@ import std;
 # include <array>
 # include <cassert>
 # include <cerrno>
+# include <compare>
+# include <csignal> // IWYU pragma: keep
 # include <cstdint>
 # include <cstdlib>
 # include <cstring>
+# include <format>
 # include <map>
 #endif
 
@@ -120,7 +122,7 @@ namespace nrl {
     const char osc133_C[] = "\e]133;C\a";
 
 
-    void move_to(state& s, unsigned x, unsigned y)
+    void move_to(state& s, int x, int y)
     {
       char buf[40];
       auto n = snprintf(buf, sizeof(buf), "\e[%u;%uH", s.initial_row + y, s.initial_col + x);
@@ -198,7 +200,17 @@ namespace nrl {
 
     bool cb_enter(state& s)
     {
-      move_to(s, s.term_cols - 1, s.initial_row + s.line_offset.size() - 1);
+      if ((s.fl & state::flags::frame) == state::flags::frame_line && s.frame_highlight_fg != s.info->default_foreground) {
+        // Undo the frame highlighting.
+        std::string frame;
+        for (size_t i = 0; i < s.term_cols; ++i)
+          frame.append("─");
+        move_to(s, 0, -1);
+        ::write(s.fd, frame.data(), frame.size());
+        move_to(s, 0, s.line_offset.size());
+        ::write(s.fd, frame.data(), frame.size());
+      }
+      move_to(s, s.term_cols - 1, s.line_offset.size() - 1 + s.cur_frame_lines);
       return true;
     }
 
@@ -429,12 +441,41 @@ namespace nrl {
                 ::write(s.fd, p, l + (s.buffer.data() + s.offset - p));
               } else
                 ::write(s.fd, s.buffer.data() + s.offset, to_print);
-              if (old_nlines != s.line_offset.size() && s.initial_row + s.line_offset.size() > s.term_rows) {
-                // Need to scroll.
-                assert(s.line_offset.size() - old_nlines == 1);
-                s.initial_row -= 1;
-                static const char SU[] = "\e[S";
-                ::write(s.fd, SU, strlen(SU));
+              if (old_nlines != s.line_offset.size()) {
+                if (s.initial_row + s.line_offset.size() - 1 + s.cur_frame_lines > s.term_rows) {
+                  // Need to scroll.
+                  assert(s.line_offset.size() - old_nlines == 1);
+                  s.initial_row -= 1;
+                  static const char SU[] = "\e[S";
+                  if (s.cur_frame_lines == 0)
+                    ::write(s.fd, SU, strlen(SU));
+                  else {
+                    std::string frame;
+                    frame.append(SU);
+                    frame.append("\r\e[J\n");
+                    if (s.frame_highlight_fg != s.info->default_foreground)
+                      std::format_to(std::back_inserter(frame), "\e[38;2;{};{};{}m", s.frame_highlight_fg.r, s.frame_highlight_fg.g, s.frame_highlight_fg.b);
+                    auto f = (s.fl & state::flags::frame) == state::flags::frame_line ? "─" : "\N{LOWER HALF BLOCK}";
+                    for (size_t i = 0; i < s.term_cols; ++i)
+                      frame.append(f);
+                    if (s.frame_highlight_fg != s.info->default_foreground)
+                      frame.append("\e[0m");
+                    frame.append("\e[A\e[A");
+                    ::write(s.fd, frame.data(), frame.size());
+                  }
+                } else if (s.cur_frame_lines > 0) {
+                  std::string frame;
+                  frame.append("\n\e[J\n");
+                  if (s.frame_highlight_fg != s.info->default_foreground)
+                    std::format_to(std::back_inserter(frame), "\e[38;2;{};{};{}m", s.frame_highlight_fg.r, s.frame_highlight_fg.g, s.frame_highlight_fg.b);
+                  auto f = (s.fl & state::flags::frame) == state::flags::frame_line ? "─" : "\N{LOWER HALF BLOCK}";
+                  for (size_t i = 0; i < s.term_cols; ++i)
+                    frame.append(f);
+                  if (s.frame_highlight_fg != s.info->default_foreground)
+                    frame.append("\e[0m");
+                  frame.append("\e[A\e[A");
+                  ::write(s.fd, frame.data(), frame.size());
+                }
               }
             } else {
               if (s.initial_col + s.pos_x > std::max(1u, unsigned(0.9 * s.term_cols))) {
@@ -510,6 +551,26 @@ namespace nrl {
           ::write(s.fd, osc133_L, strlen(osc133_L));
         else
           ::write(s.fd, "\r", 1);
+
+        if ((s.fl & state::flags::frame) != state::flags::none) {
+          std::string frame;
+
+          if (s.frame_highlight_fg != s.info->default_foreground)
+            std::format_to(std::back_inserter(frame), "\e[38;2;{};{};{}m", s.frame_highlight_fg.r, s.frame_highlight_fg.g, s.frame_highlight_fg.b);
+          auto f = (s.fl & state::flags::frame) == state::flags::frame_line ? "─" : "\N{LOWER HALF BLOCK}";
+          for (size_t i = 0; i < s.term_cols; ++i)
+            frame.append(f);
+          frame.append("\n\n");
+          f = (s.fl & state::flags::frame) == state::flags::frame_line ? "─" : "\N{UPPER HALF BLOCK}";
+          for (size_t i = 0; i < s.term_cols; ++i)
+            frame.append(f);
+          if (s.frame_highlight_fg != s.info->default_foreground)
+            frame.append("\e[0m");
+          frame.append("\e[1F");
+          ::write(s.fd, frame.data(), frame.size());
+          s.cur_frame_lines = 1;
+        } else
+          s.cur_frame_lines = 0;
 
         // Get current position.
         std::tie(s.initial_col, s.initial_row) = s.term_state != fd_state::no_terminal ? get_current_pos(s.tkfd) : std::tuple{0u, 0u};
@@ -623,7 +684,7 @@ namespace nrl {
   } // anonymous namespace
 
 
-  state::state(int fd_) : fd(fd_), tk(::termkey_new(fd, 0)), tkfd(::termkey_get_fd(tk))
+  state::state(int fd_, flags fl_) : fd(fd_), fl(fl_), info(terminal::info::alloc(fd)), frame_highlight_fg(info->default_foreground), tk(::termkey_new(fd, 0)), tkfd(::termkey_get_fd(tk))
   {
     TERMKEY_CHECK_VERSION;
 
@@ -669,7 +730,8 @@ namespace nrl {
   {
     ::close(sigfd);
     ::close(epfd);
-    termkey_destroy(tk);
+    ::sigprocmask(SIG_SETMASK, &old_mask, nullptr);
+    ::termkey_destroy(tk);
   }
 
 

@@ -75,4 +75,6 @@ set_property(TARGET nrl PROPERTY POSITION_INDEPENDENT_CODE TRUE)
 
 add_executable(nrltest nrltest.cc config.hh)
 target_include_directories(nrltest PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
-target_link_libraries(nrltest PUBLIC nrl unistring)
+target_link_libraries(nrltest PUBLIC nrl termdetect unistring)
+
+add_subdirectory(termdetect)
