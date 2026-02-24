@@ -69,7 +69,7 @@ namespace nrl {
     // True if insert mode, false if overwrite.
     bool insert = true;
     // Use OSC 133 semantic prompts.
-    bool osc133 = true;
+    bool osc133 = false;
 
     // Up-to-date in read calls.
     unsigned initial_col = 0;

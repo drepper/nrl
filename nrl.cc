@@ -768,6 +768,8 @@ namespace nrl {
       text_default_bg = bg;
     }
 
+    osc133 = info->feature_set.contains(terminal::scroll_markers);
+
     sigset_t mask;
     sigemptyset(&mask);
     sigaddset(&mask, SIGWINCH);
