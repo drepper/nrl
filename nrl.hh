@@ -42,6 +42,7 @@ namespace nrl {
     std::vector<unsigned> line_offset{0};
     size_t filled = 0;
     size_t returned = 0;
+    size_t max_lines = 1;
     std::variant<std::string, string_callback> prompt{""};
 
     std::string empty_message{};

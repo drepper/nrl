@@ -245,6 +245,23 @@ namespace nrl {
     }
 
 
+    void recompute_line_offset(state& s, int r)
+    {
+      unsigned avail = s.term_cols - (r == 0 ? s.prompt_len : 0);
+      s.line_offset.resize(r + 1);
+      auto o = s.line_offset[s.pos_y];
+      while (o < s.buffer.size()) {
+        auto [next, nchars] = offset_after_n_chars(s, avail, o);
+
+        if (nchars < avail)
+          break;
+        s.line_offset.push_back(next);
+        o = next;
+        avail = s.term_cols;
+      }
+    }
+
+
     struct key {
       bool sym;
       int mod;
@@ -294,21 +311,36 @@ namespace nrl {
 
     bool cb_enter(state& s)
     {
+      std::array<iovec, 7> iov;
+      int niov = 0;
+
+      char movbuf1[40];
+      char movbuf2[40];
+      std::string frame;
       if ((s.fl & state::flags::frame) == state::flags::frame_line && s.frame_highlight_fg != s.info->default_foreground) {
         // Undo the frame highlighting.
-        std::string frame;
         for (size_t i = 0; i < s.term_cols; ++i)
           frame.append("─");
-        move_to(s, 0, -1);
-        ::write(s.fd, frame.data(), frame.size());
-        move_to(s, 0, s.line_offset.size());
-        ::write(s.fd, frame.data(), frame.size());
+        size_t nmovbuf1 = move_to_buf(movbuf1, sizeof(movbuf1), s, 0, -1);
+        iov[niov++] = {movbuf1, nmovbuf1};
+        iov[niov++] = {frame.data(), frame.size()};
+        size_t nmovbuf2 = move_to_buf(movbuf2, sizeof(movbuf2), s, 0, s.max_lines);
+        iov[niov++] = {movbuf2, nmovbuf2};
+        iov[niov++] = {frame.data(), frame.size()};
       }
+
+      char movbuf3[40];
       if (s.buffer.empty() && ! s.empty_message.empty()) {
-        move_to(s, s.pos_x, s.pos_y);
-        ::write(s.fd, "\e[K", 3);
+        size_t nmovbuf3 = move_to_buf(movbuf3, sizeof(movbuf3), s, s.pos_x, s.pos_y);
+        iov[niov++] = {movbuf3, nmovbuf3};
+        iov[niov++] = {const_cast<char*>("\e[K"), 3zu};
       }
-      move_to(s, s.term_cols - 1, s.line_offset.size() - 1 + s.cur_frame_lines);
+
+      char movbuf4[40];
+      size_t nmovbuf4 = move_to_buf(movbuf4, sizeof(movbuf4), s, s.term_cols - 1, ((s.fl & state::flags::frame) == state::flags::none ? s.line_offset.size() : s.max_lines) - 1 + s.cur_frame_lines);
+      iov[niov++] = {movbuf4, nmovbuf4};
+
+      ::writev(s.fd, iov.data(), niov);
       return true;
     }
 
@@ -358,7 +390,7 @@ namespace nrl {
     bool cb_previous_screen_line(state& s)
     {
       if (s.pos_y > 0) {
-        if (s.pos_y > 1 || s.requested_pos_x > s.prompt_len) {
+        if (s.pos_y > 1 || s.requested_pos_x >= s.prompt_len) {
           s.pos_y -= 1;
           std::tie(s.offset, s.pos_x) = offset_after_n_chars(s, s.requested_pos_x - (s.pos_y == 0 ? s.prompt_len : 0), s.line_offset[s.pos_y]);
           if (s.pos_y == 0)
@@ -388,10 +420,20 @@ namespace nrl {
         assert(s.offset != old_offset);
         s.buffer.erase(s.buffer.begin() + s.offset, s.buffer.begin() + old_offset);
         s.nchars -= 1;
-        ::write(s.fd, s.buffer.data() + s.offset, s.buffer.size() - s.offset);
-        ::write(s.fd, " ", 1);
+        recompute_line_offset(s, s.pos_y);
+        char movbuf[40];
+        size_t nmovbuf = move_to_buf(movbuf, sizeof(movbuf), s, s.pos_x, s.pos_y);
+        // clang-format off
+        std::array<iovec, 3> iov
+        {
+          { {s.buffer.data() + s.offset, s.buffer.size() - s.offset},
+            {const_cast<char*>(" "), 1},
+            {movbuf, nmovbuf}
+          }
+        };
+        // clang-format on
+        ::writev(s.fd, iov.data(), iov.size());
         s.requested_pos_x = s.pos_x;
-        move_to(s, s.pos_x, s.pos_y);
       }
       return false;
     }
@@ -404,10 +446,20 @@ namespace nrl {
         assert(n > 0);
         s.buffer.erase(s.buffer.begin() + s.offset, s.buffer.begin() + s.offset + n);
         s.nchars -= 1;
-        ::write(s.fd, s.buffer.data() + s.offset, s.buffer.size() - s.offset);
-        ::write(s.fd, " ", 1);
+        recompute_line_offset(s, s.pos_y);
+        char movbuf[40];
+        size_t nmovbuf = move_to_buf(movbuf, sizeof(movbuf), s, s.pos_x, s.pos_y);
+        // clang-format off
+        std::array<iovec, 3> iov
+        {
+          { {s.buffer.data() + s.offset, s.buffer.size() - s.offset},
+            {const_cast<char*>(" "), 1},
+            {movbuf, nmovbuf}
+          }
+        };
+        // clang-format on
+        ::writev(s.fd, iov.data(), iov.size());
         s.requested_pos_x = s.pos_x;
-        move_to(s, s.pos_x, s.pos_y);
       }
       return false;
     }
@@ -540,19 +592,8 @@ namespace nrl {
 
             if (s.multiline) {
               // Recompute the affected line starts.
-              auto old_nlines = s.line_offset.size();
-              unsigned o = 0;
-              unsigned avail = s.term_cols - s.prompt_len;
-              s.line_offset = {0u};
-              while (o < s.buffer.size()) {
-                auto [next, nchars] = offset_after_n_chars(s, avail, o);
-
-                if (nchars < avail)
-                  break;
-                s.line_offset.push_back(next);
-                o = next;
-                avail = s.term_cols;
-              }
+              [[maybe_unused]] auto old_nlines = s.line_offset.size();
+              recompute_line_offset(s, s.pos_y);
               to_print = s.buffer.size() - s.offset;
               if (s.pos_x == 0 && s.pos_y > 0 && s.offset + l == s.buffer.size()) {
                 // Terminal emulators remember when a line is continued after the last column, even if
@@ -565,7 +606,9 @@ namespace nrl {
                 ::write(s.fd, p, l + (s.buffer.data() + s.offset - p));
               } else
                 ::write(s.fd, s.buffer.data() + s.offset, to_print);
-              if (old_nlines != s.line_offset.size()) {
+              if (s.line_offset.size() > s.max_lines) {
+                assert(s.line_offset.size() == s.max_lines + 1);
+                s.max_lines = s.line_offset.size();
                 if (s.initial_row + s.line_offset.size() - 1 + s.cur_frame_lines > s.term_rows) {
                   // Need to scroll.
                   assert(s.line_offset.size() - old_nlines == 1);
@@ -772,7 +815,7 @@ namespace nrl {
           ::termkey_advisereadable(s.tk);
 
           ::TermKeyResult r;
-          while ((r = termkey_getkey(s.tk, &key)) == ::TERMKEY_RES_KEY) {
+          while ((r = ::termkey_getkey(s.tk, &key)) == ::TERMKEY_RES_KEY) {
             if (key.type == ::TERMKEY_TYPE_UNICODE && key.modifiers == ::TERMKEY_KEYMOD_CTRL) {
               if (key.code.codepoint == 'C' || key.code.codepoint == 'c' || (s.buffer.empty() && (key.code.codepoint == 'D' || key.code.codepoint == 'd'))) {
                 done = true;
