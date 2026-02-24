@@ -304,6 +304,10 @@ namespace nrl {
         move_to(s, 0, s.line_offset.size());
         ::write(s.fd, frame.data(), frame.size());
       }
+      if (s.buffer.empty() && ! s.empty_message.empty()) {
+        move_to(s, s.pos_x, s.pos_y);
+        ::write(s.fd, "\e[K", 3);
+      }
       move_to(s, s.term_cols - 1, s.line_offset.size() - 1 + s.cur_frame_lines);
       return true;
     }
