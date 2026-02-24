@@ -44,6 +44,9 @@ namespace nrl {
     size_t returned = 0;
     std::variant<std::string, string_callback> prompt{""};
 
+    std::string empty_message{};
+    terminal::info::color empty_message_fg{};
+
     int fd;
     flags fl;
     fd_state term_state = fd_state::open;

@@ -1,6 +1,5 @@
 #include "nrl.hh"
-#include "termdetect/termdetect.hh"
-#include <iterator>
+#include <cstddef>
 
 #if defined __cpp_modules && __cpp_modules >= 201810L
 import std;
@@ -25,9 +24,12 @@ import std;
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
 #include <sys/signalfd.h>
+#include <sys/uio.h>
 
 #include <unictype.h>
 #include <unistr.h>
+
+#include "termdetect/termdetect.hh"
 
 // Debug
 // #include <print>
@@ -140,11 +142,11 @@ namespace nrl {
     }
 
 
-    std::tuple<terminal::info::color, terminal::info::color> adjust_rgb(terminal::info::color fg, terminal::info::color bg, unsigned adjust_val)
+    std::tuple<terminal::info::color, terminal::info::color> adjust_rgb(terminal::info::color fg, terminal::info::color bg, int adjust_val)
     {
       auto hsv_fg = rgb_to_hsv(fg);
       auto hsv_bg = rgb_to_hsv(bg);
-      if (hsv_bg.v >= 128) {
+      if (adjust_val >= 0 ? (hsv_bg.v >= 128) : (hsv_bg.v < 128)) {
         hsv_fg.v = hsv_fg.v > adjust_val ? (hsv_fg.v - adjust_val) : 0;
         hsv_bg.v -= adjust_val;
       } else {
@@ -208,10 +210,16 @@ namespace nrl {
     const char osc133_C[] = "\e]133;C\a";
 
 
+    auto move_to_buf(char* buf, size_t n, state& s, int x, int y)
+    {
+      return snprintf(buf, n, "\e[%u;%uH", s.initial_row + y, s.initial_col + x);
+    }
+
+
     void move_to(state& s, int x, int y)
     {
       char buf[40];
-      auto n = snprintf(buf, sizeof(buf), "\e[%u;%uH", s.initial_row + y, s.initial_col + x);
+      auto n = move_to_buf(buf, sizeof(buf), s, x, y);
       ::write(s.fd, buf, n);
     }
 
@@ -467,6 +475,29 @@ namespace nrl {
     }
 
 
+    void show_empty_message(state& s)
+    {
+      auto colon = std::format("\e[38;2;{};{};{}m", s.empty_message_fg.r, s.empty_message_fg.g, s.empty_message_fg.b);
+      std::string coloff;
+      if (s.text_default_fg != terminal::info::color{})
+        coloff = std::format("\e[38;2;{};{};{}m", s.text_default_fg.r, s.text_default_fg.g, s.text_default_fg.b);
+      else
+        coloff = "\e[m";
+      char movebuf[40];
+      auto nmovebuf = move_to_buf(movebuf, sizeof(movebuf), s, s.pos_x, s.pos_y);
+      // clang-format off
+      std::array<iovec, 4> iov{
+        {
+          {colon.data(), colon.size()},
+          {s.empty_message.data(), s.empty_message.size()},
+          {coloff.data(), coloff.size()},
+          {movebuf, static_cast<size_t>(nmovebuf) }},
+      };
+      // clang-format on
+      ::writev(s.fd, iov.data(), iov.size());
+    }
+
+
     // clang-format off
     std::map<key, key_function> key_map{
       {{false, ::TERMKEY_KEYMOD_CTRL, 'a'}, cb_beginning_of_line},
@@ -495,6 +526,9 @@ namespace nrl {
           uint8_t buf[8];
           auto l = ::u8_uctomb(buf, key.code.codepoint, sizeof(buf));
           auto to_print = l;
+
+          if (s.buffer.empty() && ! s.empty_message.empty())
+            ::write(s.fd, "\e[K", 3);
 
           if (s.insert || s.offset == s.buffer.size()) {
             s.buffer.insert(s.buffer.begin() + s.offset, buf, buf + l);
@@ -595,8 +629,13 @@ namespace nrl {
         } else if (auto cb = key_map.find({false, key.modifiers & (::TERMKEY_KEYMOD_ALT | ::TERMKEY_KEYMOD_SHIFT | ::TERMKEY_KEYMOD_CTRL), key.code.codepoint}); cb != key_map.end())
           return cb->second(s);
       } else if (key.type == ::TERMKEY_TYPE_KEYSYM) {
-        if (auto cb = key_map.find({true, key.modifiers & (::TERMKEY_KEYMOD_ALT | ::TERMKEY_KEYMOD_SHIFT | ::TERMKEY_KEYMOD_CTRL), key.code.sym}); cb != key_map.end())
-          return cb->second(s);
+        auto was_empty = s.buffer.empty();
+        if (auto cb = key_map.find({true, key.modifiers & (::TERMKEY_KEYMOD_ALT | ::TERMKEY_KEYMOD_SHIFT | ::TERMKEY_KEYMOD_CTRL), key.code.sym}); cb != key_map.end()) {
+          auto res = cb->second(s);
+          if (! was_empty && s.buffer.empty() && ! s.empty_message.empty()) [[unlikely]]
+            show_empty_message(s);
+          return res;
+        }
       }
 
       return false;
@@ -674,6 +713,19 @@ namespace nrl {
 
         // Clear to end of line.  This also fills in the background color, if needed.
         ::write(s.fd, "\e[K", 3);
+
+        if (! s.empty_message.empty()) {
+          // Determine the foregroun color to use.  It should be darker than the usual.
+          terminal::info::color fg;
+          terminal::info::color bg;
+          if ((s.fl & state::flags::frame) != state::flags::frame_background)
+            std::tie(fg, bg) = adjust_rgb(s.info->default_foreground, s.info->default_background, 48);
+          else
+            std::tie(fg, bg) = adjust_rgb(s.text_default_fg, s.text_default_bg, 48);
+          s.empty_message_fg = bg;
+
+          show_empty_message(s);
+        }
       }
 
       bool done = false;
@@ -737,7 +789,7 @@ namespace nrl {
         }
 
         if (n > 0 && epev[0].data.fd == s.sigfd) {
-          signalfd_siginfo si;
+          ::signalfd_siginfo si;
           ::read(s.sigfd, &si, sizeof(si));
           std::tie(s.term_cols, s.term_rows) = update_winsize(s.fd);
 

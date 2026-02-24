@@ -19,6 +19,7 @@ int main(int argc, [[maybe_unused]] char* argv[])
     s.frame_highlight_fg = {255, 215, 0};
 
   s.set_prompt("INPUT> ");
+  s.empty_message = "Type something …";
 
   auto l = nrl::read(s);
   std::println("\ninput = {}", l);
