@@ -11,16 +11,20 @@ int main(int argc, [[maybe_unused]] char* argv[])
   std::locale loc = std::locale("C.utf8");
   std::locale::global(loc);
 
-  auto fl = argc == 1 ? nrl::state::flags::none : static_cast<nrl::state::flags>(std::atol(argv[1]));
+  auto fl = argc == 1 ? nrl::handle::flags::none : static_cast<nrl::handle::flags>(std::atol(argv[1]));
 
-  nrl::state s(STDIN_FILENO, fl);
+  nrl::handle s(STDIN_FILENO, fl);
 
-  if (fl == nrl::state::flags::frame_line)
+  if (fl == nrl::handle::flags::frame_line)
     s.frame_highlight_fg = {255, 215, 0};
 
   s.set_prompt("INPUT> ");
   s.empty_message = "Type something …";
 
-  auto l = s.read();
-  std::println("\ninput = {}", l);
+  while (true) {
+    auto l = s.read();
+    if (l.empty())
+      break;
+    std::println("\ninput = {}", l);
+  }
 }

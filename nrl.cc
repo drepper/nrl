@@ -212,13 +212,13 @@ namespace nrl {
     const char osc133_C[] = "\e]133;C\a";
 
 
-    auto move_to_buf(char* buf, size_t n, state& s, int x, int y)
+    auto move_to_buf(char* buf, size_t n, handle& s, int x, int y)
     {
       return snprintf(buf, n, "\e[%u;%uH", s.initial_row + y, s.initial_col + x);
     }
 
 
-    void move_to(state& s, int x, int y)
+    void move_to(handle& s, int x, int y)
     {
       char buf[40];
       auto n = move_to_buf(buf, sizeof(buf), s, x, y);
@@ -226,7 +226,7 @@ namespace nrl {
     }
 
 
-    std::tuple<unsigned, unsigned> offset_after_n_chars(state& s, unsigned n, unsigned offset)
+    std::tuple<unsigned, unsigned> offset_after_n_chars(handle& s, unsigned n, unsigned offset)
     {
       unsigned cnt = 0;
       while (offset < s.buffer.size() && cnt < n) {
@@ -247,7 +247,7 @@ namespace nrl {
     }
 
 
-    void recompute_line_offset(state& s, int r)
+    void recompute_line_offset(handle& s, int r)
     {
       unsigned avail = s.term_cols - (r == 0 ? s.prompt_len : 0);
       s.line_offset.resize(r + 1);
@@ -280,10 +280,10 @@ namespace nrl {
       }
     };
 
-    using key_function = bool (*)(state&);
+    using key_function = bool (*)(handle&);
 
 
-    bool cb_beginning_of_line(state& s)
+    bool cb_beginning_of_line(handle& s)
     {
       if (s.offset != 0) {
         s.pos_x = s.prompt_len;
@@ -294,7 +294,7 @@ namespace nrl {
       return false;
     }
 
-    bool cb_end_of_line(state& s)
+    bool cb_end_of_line(handle& s)
     {
       if (s.offset != s.buffer.size()) {
         s.pos_y = s.line_offset.size() - 1;
@@ -305,13 +305,13 @@ namespace nrl {
       return false;
     }
 
-    bool cb_insert(state& s)
+    bool cb_insert(handle& s)
     {
       s.insert = ! s.insert;
       return false;
     }
 
-    bool cb_enter(state& s)
+    bool cb_enter(handle& s)
     {
       std::array<iovec, 7> iov;
       int niov = 0;
@@ -319,7 +319,7 @@ namespace nrl {
       char movbuf1[40];
       char movbuf2[40];
       std::string frame;
-      if ((s.fl & state::flags::frame) == state::flags::frame_line && s.frame_highlight_fg != s.info->default_foreground) {
+      if ((s.fl & handle::flags::frame) == handle::flags::frame_line && s.frame_highlight_fg != s.info->default_foreground) {
         // Undo the frame highlighting.
         for (size_t i = 0; i < s.term_cols; ++i)
           frame.append("─");
@@ -339,14 +339,14 @@ namespace nrl {
       }
 
       char movbuf4[40];
-      size_t nmovbuf4 = move_to_buf(movbuf4, sizeof(movbuf4), s, s.term_cols - 1, ((s.fl & state::flags::frame) == state::flags::none ? s.line_offset.size() : s.max_lines) - 1 + s.cur_frame_lines);
+      size_t nmovbuf4 = move_to_buf(movbuf4, sizeof(movbuf4), s, s.term_cols - 1, ((s.fl & handle::flags::frame) == handle::flags::none ? s.line_offset.size() : s.max_lines) - 1 + s.cur_frame_lines);
       iov[niov++] = {movbuf4, nmovbuf4};
 
       ::writev(s.fd, iov.data(), niov);
       return true;
     }
 
-    bool cb_backward_char(state& s)
+    bool cb_backward_char(handle& s)
     {
       if (s.offset > 0) {
         ucs4_t uc;
@@ -368,7 +368,7 @@ namespace nrl {
       return false;
     }
 
-    bool cb_forward_char(state& s)
+    bool cb_forward_char(handle& s)
     {
       if (s.offset < s.buffer.size()) {
         ucs4_t uc;
@@ -389,7 +389,7 @@ namespace nrl {
       return false;
     }
 
-    bool cb_previous_screen_line(state& s)
+    bool cb_previous_screen_line(handle& s)
     {
       if (s.pos_y > 0) {
         if (s.pos_y > 1 || s.requested_pos_x >= s.prompt_len) {
@@ -403,7 +403,7 @@ namespace nrl {
       return false;
     }
 
-    bool cb_next_screen_line(state& s)
+    bool cb_next_screen_line(handle& s)
     {
       if (s.pos_y + 1 < s.line_offset.size()) {
         s.pos_y += 1;
@@ -414,7 +414,7 @@ namespace nrl {
       return false;
     }
 
-    bool cb_backspace(state& s)
+    bool cb_backspace(handle& s)
     {
       if (s.offset > 0) {
         auto old_offset = s.offset;
@@ -440,7 +440,7 @@ namespace nrl {
       return false;
     }
 
-    bool cb_delete(state& s)
+    bool cb_delete(handle& s)
     {
       if (s.offset < s.buffer.size()) {
         ucs4_t _;
@@ -466,7 +466,7 @@ namespace nrl {
       return false;
     }
 
-    bool cb_backward_word(state& s)
+    bool cb_backward_word(handle& s)
     {
       if (s.offset > 0) {
         auto cat = uc_general_category_or(UC_LETTER, UC_NUMBER);
@@ -495,7 +495,7 @@ namespace nrl {
       return false;
     }
 
-    bool cb_forward_word(state& s)
+    bool cb_forward_word(handle& s)
     {
       if (s.offset + 1 < s.buffer.size()) {
         auto cat = uc_general_category_or(UC_LETTER, UC_NUMBER);
@@ -533,7 +533,7 @@ namespace nrl {
     }
 
 
-    bool cb_unix_line_discard(state& s)
+    bool cb_unix_line_discard(handle& s)
     {
       if (s.offset > 0) {
         s.buffer.erase(s.buffer.begin(), s.buffer.begin() + s.offset);
@@ -560,7 +560,7 @@ namespace nrl {
     }
 
 
-    bool cb_kill_line(state& s)
+    bool cb_kill_line(handle& s)
     {
       if (s.offset < s.buffer.size()) {
         s.buffer.erase(s.buffer.begin() + s.offset, s.buffer.end());
@@ -585,7 +585,7 @@ namespace nrl {
     }
 
 
-    void show_empty_message(state& s)
+    void show_empty_message(handle& s)
     {
       auto colon = std::format("\e[38;2;{};{};{}m", s.empty_message_fg.r, s.empty_message_fg.g, s.empty_message_fg.b);
       std::string coloff;
@@ -630,7 +630,7 @@ namespace nrl {
     // clang-format on
 
 
-    bool on_key(state& s, ::TermKeyKey key)
+    bool on_key(handle& s, ::TermKeyKey key)
     {
       if (key.type == ::TERMKEY_TYPE_UNICODE) {
         if ((key.modifiers & (::TERMKEY_KEYMOD_ALT | ::TERMKEY_KEYMOD_CTRL)) == 0) {
@@ -745,7 +745,7 @@ namespace nrl {
     }
 
 
-    std::tuple<bool, bool> handle_one(state& s, ::epoll_event& epev)
+    std::tuple<bool, bool> handle_one(handle& s, ::epoll_event& epev)
     {
       if (epev.data.fd == s.tkfd) {
         ::termkey_advisereadable(s.tk);
@@ -777,17 +777,81 @@ namespace nrl {
     }
 
 
-    void finalize(state& s)
+    void setup_epoll(handle& s)
+    {
+      assert(s.term_state == state::closed || s.term_state == state::open);
+
+      if (s.term_state == state::closed) {
+        sigset_t mask;
+        sigemptyset(&mask);
+        sigaddset(&mask, SIGWINCH);
+        if (::sigprocmask(SIG_BLOCK, &mask, &s.old_mask) != 0) [[unlikely]]
+          // This really should never happen.
+          ::error(EXIT_FAILURE, errno, "sigprocmask failed ?!");
+
+        std::tie(s.term_cols, s.term_rows) = update_winsize(s.fd);
+
+        s.sigfd = ::signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC);
+        if (s.sigfd == -1) [[unlikely]]
+          // This really should never happen.
+          ::error(EXIT_FAILURE, errno, "sigfd failed ?!");
+
+        epoll_event epev;
+        epev.events = EPOLLIN | EPOLLERR;
+        epev.data.fd = s.tkfd;
+        if (::epoll_ctl(s.epfd, EPOLL_CTL_ADD, s.tkfd, &epev) != 0) [[unlikely]] {
+          if (errno == EPERM) {
+            assert(s.tk == nullptr);
+            throw std::filesystem::filesystem_error("cannot use file descriptor", std::make_error_code(std::errc::inappropriate_io_control_operation));
+          } else [[unlikely]]
+            ::error(EXIT_FAILURE, errno, "epoll_ctl failed");
+        } else
+          ::fcntl(s.fd, F_SETFL, ::fcntl(s.fd, F_GETFL) | O_NONBLOCK);
+
+        epev.events = EPOLLIN | EPOLLERR;
+        epev.data.fd = s.sigfd;
+        if (::epoll_ctl(s.epfd, EPOLL_CTL_ADD, s.sigfd, &epev) != 0) [[unlikely]]
+          ::error(EXIT_FAILURE, errno, "epoll_ctl failed");
+
+        s.term_state = state::open;
+      }
+    }
+
+
+    void cleanup_epoll(handle& s)
+    {
+      assert(s.term_state == state::open);
+
+      if (! sigismember(&s.old_mask, SIGWINCH)) {
+        sigset_t mask;
+        sigemptyset(&mask);
+        sigaddset(&mask, SIGWINCH);
+        if (::sigprocmask(SIG_BLOCK, &mask, nullptr) != 0) [[unlikely]]
+          // This really should never happen.
+          ::error(EXIT_FAILURE, errno, "sigprocmask failed ?!");
+      }
+
+      // Ignore errors.  Maybe someone else cleared all descriptors?
+      (void) ::epoll_ctl(s.epfd, EPOLL_CTL_DEL, s.tkfd, nullptr);
+      (void) ::epoll_ctl(s.epfd, EPOLL_CTL_DEL, s.sigfd, nullptr);
+
+      s.term_state = state::closed;
+    }
+
+
+    void finalize(handle& s)
     {
       if (s.text_default_fg != terminal::info::color{})
         ::write(s.fd, "\e[m", 3);
 
       if (s.osc133)
         ::write(s.fd, osc133_C, strlen(osc133_C));
+
+      cleanup_epoll(s);
     }
 
 
-    void the_loop(state& s)
+    void the_loop(handle& s)
     {
       s.prepare();
 
@@ -801,11 +865,11 @@ namespace nrl {
     }
 
 
-    void init_state(state& s)
+    void init_state(handle& s)
     {
       TERMKEY_CHECK_VERSION;
 
-      if ((s.fl & state::flags::frame) == state::flags::frame_background) {
+      if ((s.fl & handle::flags::frame) == handle::flags::frame_background) {
         // We use as foreground a slightly adjusted version of the default background colors.
         auto [fg, bg] = adjust_rgb(s.info->default_foreground, s.info->default_background, 32);
         s.frame_highlight_fg = bg;
@@ -815,42 +879,13 @@ namespace nrl {
 
       s.osc133 = s.info->feature_set.contains(terminal::scroll_markers);
 
-      sigset_t mask;
-      sigemptyset(&mask);
-      sigaddset(&mask, SIGWINCH);
-      if (::sigprocmask(SIG_BLOCK, &mask, &s.old_mask) != 0) [[unlikely]]
-        // This really should never happen.
-        ::error(EXIT_FAILURE, errno, "sigprocmask failed ?!");
-
-      std::tie(s.term_cols, s.term_rows) = update_winsize(s.fd);
-
-      s.sigfd = ::signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC);
-      if (s.sigfd == -1) [[unlikely]]
-        // This really should never happen.
-        ::error(EXIT_FAILURE, errno, "sigfd failed ?!");
-
-      epoll_event epev;
-      epev.events = EPOLLIN | EPOLLERR;
-      epev.data.fd = s.tkfd;
-      if (::epoll_ctl(s.epfd, EPOLL_CTL_ADD, s.tkfd, &epev) != 0) {
-        if (errno == EPERM) {
-          assert(s.tk == nullptr);
-          throw std::filesystem::filesystem_error("cannot use file descriptor", std::make_error_code(std::errc::inappropriate_io_control_operation));
-        } else [[unlikely]]
-          ::error(EXIT_FAILURE, errno, "epoll_ctl failed");
-      } else
-        ::fcntl(s.fd, F_SETFL, ::fcntl(s.fd, F_GETFL) | O_NONBLOCK);
-
-      epev.events = EPOLLIN | EPOLLERR;
-      epev.data.fd = s.sigfd;
-      if (::epoll_ctl(s.epfd, EPOLL_CTL_ADD, s.sigfd, &epev) != 0) [[unlikely]]
-        ::error(EXIT_FAILURE, errno, "epoll_ctl failed");
+      s.term_state = state::closed;
     }
 
   } // anonymous namespace
 
 
-  state::state(int fd_, flags fl_) : fd(fd_), fl(fl_), info(terminal::info::alloc(fd)), frame_highlight_fg(info->default_foreground), tk(::termkey_new(fd, 0)), tkfd(::termkey_get_fd(tk)), epfd(::epoll_create1(EPOLL_CLOEXEC)), extern_epfd(false)
+  handle::handle(int fd_, flags fl_) : fd(fd_), fl(fl_), info(terminal::info::alloc(fd)), frame_highlight_fg(info->default_foreground), tk(::termkey_new(fd, 0)), tkfd(::termkey_get_fd(tk)), epfd(::epoll_create1(EPOLL_CLOEXEC)), extern_epfd(false)
   {
     if (epfd == -1) [[unlikely]]
       // This really should never happen.
@@ -860,14 +895,17 @@ namespace nrl {
   }
 
 
-  state::state(int epfd_, int fd_, flags fl_) : fd(fd_), fl(fl_), info(terminal::info::alloc(fd)), frame_highlight_fg(info->default_foreground), tk(::termkey_new(fd, 0)), tkfd(::termkey_get_fd(tk)), epfd(epfd_), extern_epfd(true)
+  handle::handle(int epfd_, int fd_, flags fl_) : fd(fd_), fl(fl_), info(terminal::info::alloc(fd)), frame_highlight_fg(info->default_foreground), tk(::termkey_new(fd, 0)), tkfd(::termkey_get_fd(tk)), epfd(epfd_), extern_epfd(true)
   {
     init_state(*this);
   }
 
 
-  state::~state()
+  handle::~handle()
   {
+    if (term_state == state::open)
+      cleanup_epoll(*this);
+
     ::close(sigfd);
     if (! extern_epfd)
       ::close(epfd);
@@ -876,31 +914,31 @@ namespace nrl {
   }
 
 
-  void state::set_prompt(const char* s)
+  void handle::set_prompt(const char* s)
   {
     prompt = s;
   }
 
 
-  void state::set_prompt(const std::string& s)
+  void handle::set_prompt(const std::string& s)
   {
     prompt = s;
   }
 
 
-  void state::set_prompt(const std::string_view s)
+  void handle::set_prompt(const std::string_view s)
   {
     prompt = std::string(s);
   }
 
 
-  void state::set_prompt(string_callback prompt_fct)
+  void handle::set_prompt(string_callback prompt_fct)
   {
     prompt = prompt_fct;
   }
 
 
-  std::string_view state::read()
+  std::string_view handle::read()
   {
     the_loop(*this);
 
@@ -908,93 +946,99 @@ namespace nrl {
   }
 
 
-  void state::prepare()
+  void handle::prepare()
   {
-    buffer.clear();
+    assert(term_state == state::open || term_state == state::closed);
 
-    // Move to the next line beginning.
-    if (osc133)
-      ::write(fd, osc133_L, strlen(osc133_L));
-    else
-      ::write(fd, "\r", 1);
+    if (term_state == state::closed) {
+      setup_epoll(*this);
 
-    if ((fl & state::flags::frame) != state::flags::none) {
-      std::string frame;
+      buffer.clear();
 
-      if (frame_highlight_fg != info->default_foreground)
-        std::format_to(std::back_inserter(frame), "\e[38;2;{};{};{}m", frame_highlight_fg.r, frame_highlight_fg.g, frame_highlight_fg.b);
-      auto f = (fl & state::flags::frame) == state::flags::frame_line ? "─" : "\N{LOWER HALF BLOCK}";
-      for (size_t i = 0; i < term_cols; ++i)
-        frame.append(f);
-      frame.append("\n\n");
-      f = (fl & state::flags::frame) == state::flags::frame_line ? "─" : "\N{UPPER HALF BLOCK}";
-      for (size_t i = 0; i < term_cols; ++i)
-        frame.append(f);
-      if (frame_highlight_fg != info->default_foreground)
-        frame.append("\e[0m");
-      frame.append("\e[1F");
-      ::write(fd, frame.data(), frame.size());
-      cur_frame_lines = 1;
-
-      if (text_default_fg != terminal::info::color{}) {
-        auto colsel = std::format("\e[38;2;{};{};{};48;2;{};{};{}m", text_default_fg.r, text_default_fg.g, text_default_fg.b, text_default_bg.r, text_default_bg.g, text_default_bg.b);
-        ::write(fd, colsel.data(), colsel.size());
-      }
-    } else
-      cur_frame_lines = 0;
-
-    // Get current position.
-    std::tie(initial_col, initial_row) = get_current_pos(tkfd);
-    assert(initial_col == 1);
-
-    offset = 0u;
-    nchars = 0u;
-    pos_x = 0u;
-    pos_y = 0u;
-    line_offset = {0u};
-
-    prompt_len = 0u;
-
-    // For interactive use.
-    assert(buffer.empty());
-
-    std::string prompt_str;
-    if (std::holds_alternative<std::string>(prompt))
-      prompt_str = std::get<std::string>(prompt);
-    else
-      prompt_str = std::get<state::string_callback>(prompt)();
-
-    prompt_len = nonescape_len(prompt_str);
-
-    if (! prompt_str.empty()) {
+      // Move to the next line beginning.
       if (osc133)
-        ::write(fd, osc133_A, strlen(osc133_A));
-      ::write(fd, prompt_str.data(), prompt_str.size());
-    }
-    if (osc133)
-      ::write(fd, osc133_B, strlen(osc133_B));
-
-    pos_x = prompt_len;
-
-    // Clear to end of line.  This also fills in the background color, if needed.
-    ::write(fd, "\e[K", 3);
-
-    if (! empty_message.empty()) {
-      // Determine the foregroun color to use.  It should be darker than the usual.
-      terminal::info::color fg;
-      terminal::info::color bg;
-      if ((fl & state::flags::frame) != state::flags::frame_background)
-        std::tie(fg, bg) = adjust_rgb(info->default_foreground, info->default_background, 48);
+        ::write(fd, osc133_L, strlen(osc133_L));
       else
-        std::tie(fg, bg) = adjust_rgb(text_default_fg, text_default_bg, 48);
-      empty_message_fg = bg;
+        ::write(fd, "\r", 1);
 
-      show_empty_message(*this);
+      if ((fl & handle::flags::frame) != handle::flags::none) {
+        std::string frame;
+
+        if (frame_highlight_fg != info->default_foreground)
+          std::format_to(std::back_inserter(frame), "\e[38;2;{};{};{}m", frame_highlight_fg.r, frame_highlight_fg.g, frame_highlight_fg.b);
+        auto f = (fl & handle::flags::frame) == handle::flags::frame_line ? "─" : "\N{LOWER HALF BLOCK}";
+        for (size_t i = 0; i < term_cols; ++i)
+          frame.append(f);
+        frame.append("\n\n");
+        f = (fl & handle::flags::frame) == handle::flags::frame_line ? "─" : "\N{UPPER HALF BLOCK}";
+        for (size_t i = 0; i < term_cols; ++i)
+          frame.append(f);
+        if (frame_highlight_fg != info->default_foreground)
+          frame.append("\e[0m");
+        frame.append("\e[1F");
+        ::write(fd, frame.data(), frame.size());
+        cur_frame_lines = 1;
+
+        if (text_default_fg != terminal::info::color{}) {
+          auto colsel = std::format("\e[38;2;{};{};{};48;2;{};{};{}m", text_default_fg.r, text_default_fg.g, text_default_fg.b, text_default_bg.r, text_default_bg.g, text_default_bg.b);
+          ::write(fd, colsel.data(), colsel.size());
+        }
+      } else
+        cur_frame_lines = 0;
+
+      // Get current position.
+      std::tie(initial_col, initial_row) = get_current_pos(tkfd);
+      assert(initial_col == 1);
+
+      offset = 0u;
+      nchars = 0u;
+      pos_x = 0u;
+      pos_y = 0u;
+      line_offset = {0u};
+
+      prompt_len = 0u;
+
+      // For interactive use.
+      assert(buffer.empty());
+
+      std::string prompt_str;
+      if (std::holds_alternative<std::string>(prompt))
+        prompt_str = std::get<std::string>(prompt);
+      else
+        prompt_str = std::get<handle::string_callback>(prompt)();
+
+      prompt_len = nonescape_len(prompt_str);
+
+      if (! prompt_str.empty()) {
+        if (osc133)
+          ::write(fd, osc133_A, strlen(osc133_A));
+        ::write(fd, prompt_str.data(), prompt_str.size());
+      }
+      if (osc133)
+        ::write(fd, osc133_B, strlen(osc133_B));
+
+      pos_x = prompt_len;
+
+      // Clear to end of line.  This also fills in the background color, if needed.
+      ::write(fd, "\e[K", 3);
+
+      if (! empty_message.empty()) {
+        // Determine the foregroun color to use.  It should be darker than the usual.
+        terminal::info::color fg;
+        terminal::info::color bg;
+        if ((fl & handle::flags::frame) != handle::flags::frame_background)
+          std::tie(fg, bg) = adjust_rgb(info->default_foreground, info->default_background, 48);
+        else
+          std::tie(fg, bg) = adjust_rgb(text_default_fg, text_default_bg, 48);
+        empty_message_fg = bg;
+
+        show_empty_message(*this);
+      }
     }
   }
 
 
-  std::expected<std::string_view, bool> state::handle(::epoll_event& epev)
+  std::expected<std::string_view, bool> handle::process(::epoll_event& epev)
   {
     auto [handled, done] = handle_one(*this, epev);
     if (! done)

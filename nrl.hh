@@ -19,9 +19,9 @@
 
 namespace nrl {
 
-  enum struct fd_state { open, closed };
+  enum struct state { invalid, open, closed };
 
-  struct state {
+  struct handle {
     enum struct flags {
       none = 0,
       frame_line = 1,
@@ -29,16 +29,16 @@ namespace nrl {
       frame = 3,
     };
 
-    state(int fd_, flags fl_ = flags::none);
-    state(int epfd_, int fd_, flags fl_ = flags::none);
-    state(const state&) = delete;
-    state& operator=(const state&) = delete;
-    ~state();
+    handle(int fd_, flags fl_ = flags::none);
+    handle(int epfd_, int fd_, flags fl_ = flags::none);
+    handle(const handle&) = delete;
+    handle& operator=(const handle&) = delete;
+    ~handle();
 
     std::string_view read();
 
     void prepare();
-    std::expected<std::string_view, bool> handle(::epoll_event& epev);
+    std::expected<std::string_view, bool> process(::epoll_event& epev);
 
     using string_callback = const char* (*) ();
 
@@ -59,7 +59,7 @@ namespace nrl {
 
     int fd;
     flags fl;
-    fd_state term_state = fd_state::open;
+    state term_state = state::invalid;
     std::shared_ptr<terminal::info> info;
 
     unsigned term_rows = 0;
@@ -96,17 +96,17 @@ namespace nrl {
     unsigned first = 0; // When not multiline, offset of the first character shown.
     unsigned prompt_len = 0;
 
-    friend std::string_view read(state&);
+    friend std::string_view read(handle&);
   };
 
 
-  inline state::flags operator&(state::flags l, state::flags r)
+  inline handle::flags operator&(handle::flags l, handle::flags r)
   {
-    return static_cast<state::flags>(std::to_underlying(l) & std::to_underlying(r));
+    return static_cast<handle::flags>(std::to_underlying(l) & std::to_underlying(r));
   }
-  inline state::flags operator|(state::flags l, state::flags r)
+  inline handle::flags operator|(handle::flags l, handle::flags r)
   {
-    return static_cast<state::flags>(std::to_underlying(l) | std::to_underlying(r));
+    return static_cast<handle::flags>(std::to_underlying(l) | std::to_underlying(r));
   }
 
 } // namespace nrl
