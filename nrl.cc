@@ -251,7 +251,7 @@ namespace nrl {
     {
       unsigned avail = s.term_cols - (r == 0 ? s.prompt_len : 0);
       s.line_offset.resize(r + 1);
-      auto o = s.line_offset[s.pos_y];
+      auto o = s.line_offset[r];
       while (o < s.buffer.size()) {
         auto [next, nchars] = offset_after_n_chars(s, avail, o);
 
@@ -533,6 +533,58 @@ namespace nrl {
     }
 
 
+    bool cb_unix_line_discard(state& s)
+    {
+      if (s.offset > 0) {
+        s.buffer.erase(s.buffer.begin(), s.buffer.begin() + s.offset);
+        auto old_nlines = s.line_offset.size();
+        s.pos_x = s.prompt_len;
+        s.pos_y = 0;
+        recompute_line_offset(s, 0);
+        // clang-format off
+        char movbuf[40];
+        size_t nmovbuf = move_to_buf(movbuf, sizeof(movbuf), s, s.pos_x, s.pos_y);
+        std::vector<iovec> iov
+        {
+          {movbuf, nmovbuf},
+          {s.buffer.data(), s.buffer.size()},
+          {const_cast<char*>("\e[K"), 3},
+        };
+        // clang-format on
+        while (old_nlines-- > s.line_offset.size())
+          iov.emplace_back(const_cast<char*>("\n\e[K"), 4);
+        iov.emplace_back(movbuf, nmovbuf);
+        ::writev(s.fd, iov.data(), iov.size());
+      }
+      return false;
+    }
+
+
+    bool cb_kill_line(state& s)
+    {
+      if (s.offset < s.buffer.size()) {
+        s.buffer.erase(s.buffer.begin() + s.offset, s.buffer.end());
+        auto old_nlines = s.line_offset.size();
+        recompute_line_offset(s, s.pos_y);
+        // clang-format off
+        std::vector<iovec> iov
+        {
+          {const_cast<char*>("\e[K"), 3},
+        };
+        // clang-format on
+        if (old_nlines > s.line_offset.size()) {
+          while (old_nlines-- > s.line_offset.size())
+            iov.emplace_back(const_cast<char*>("\n\e[K"), 4);
+          char movbuf[40];
+          size_t nmovbuf = move_to_buf(movbuf, sizeof(movbuf), s, s.pos_x, s.pos_y);
+          iov.emplace_back(movbuf, nmovbuf);
+        }
+        ::writev(s.fd, iov.data(), iov.size());
+      }
+      return false;
+    }
+
+
     void show_empty_message(state& s)
     {
       auto colon = std::format("\e[38;2;{};{};{}m", s.empty_message_fg.r, s.empty_message_fg.g, s.empty_message_fg.b);
@@ -571,7 +623,9 @@ namespace nrl {
       {{true, 0, ::TERMKEY_SYM_BACKSPACE}, cb_backspace},
       {{true, 0, ::TERMKEY_SYM_DELETE}, cb_delete},
       {{false, 2, 'b'}, cb_backward_word},
-      {{false, 2, 'f'}, cb_forward_word},
+      {{false, ::TERMKEY_KEYMOD_ALT, 'f'}, cb_forward_word},
+      {{false, ::TERMKEY_KEYMOD_CTRL, 'u'}, cb_unix_line_discard},
+      {{false, ::TERMKEY_KEYMOD_CTRL, 'k'}, cb_kill_line},
     };
     // clang-format on
 
