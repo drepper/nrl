@@ -4,10 +4,13 @@
 
 # include <csignal> // IWYU pragma: keep
 # include <cstdint>
+# include <expected>
 # include <string>
 # include <string_view>
 # include <variant>
 # include <vector>
+
+# include <sys/epoll.h>
 
 # include <termkey.h>
 
@@ -16,7 +19,7 @@
 
 namespace nrl {
 
-  enum struct fd_state { open, no_terminal, closed };
+  enum struct fd_state { open, closed };
 
   struct state {
     enum struct flags {
@@ -27,9 +30,15 @@ namespace nrl {
     };
 
     state(int fd_, flags fl_ = flags::none);
+    state(int epfd_, int fd_, flags fl_ = flags::none);
     state(const state&) = delete;
     state& operator=(const state&) = delete;
     ~state();
+
+    std::string_view read();
+
+    void prepare();
+    std::expected<std::string_view, bool> handle(::epoll_event& epev);
 
     using string_callback = const char* (*) ();
 
@@ -66,7 +75,8 @@ namespace nrl {
     sigset_t old_mask{};
     int sigfd = -1;
 
-    int epfd = -1;
+    int epfd;
+    bool extern_epfd;
 
     // True if not scrolling but multi-line input is requested.
     bool multiline = true;
@@ -98,9 +108,6 @@ namespace nrl {
   {
     return static_cast<state::flags>(std::to_underlying(l) | std::to_underlying(r));
   }
-
-
-  std::string_view read(state& c);
 
 } // namespace nrl
 

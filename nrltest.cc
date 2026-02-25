@@ -21,6 +21,6 @@ int main(int argc, [[maybe_unused]] char* argv[])
   s.set_prompt("INPUT> ");
   s.empty_message = "Type something …";
 
-  auto l = nrl::read(s);
+  auto l = s.read();
   std::println("\ninput = {}", l);
 }

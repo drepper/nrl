@@ -1,5 +1,7 @@
 #include "nrl.hh"
 #include <cstddef>
+#include <filesystem>
+#include <system_error>
 
 #if defined __cpp_modules && __cpp_modules >= 201810L
 import std;
@@ -689,228 +691,132 @@ namespace nrl {
     }
 
 
-    size_t the_loop(state& s)
+    std::tuple<bool, bool> handle_one(state& s, ::epoll_event& epev)
     {
-      size_t len = 0;
+      if (epev.data.fd == s.tkfd) {
+        ::termkey_advisereadable(s.tk);
 
-      if (s.term_state != fd_state::no_terminal) [[likely]] {
-        // Move to the next line beginning.
-        if (s.osc133)
-          ::write(s.fd, osc133_L, strlen(osc133_L));
-        else
-          ::write(s.fd, "\r", 1);
-
-        if ((s.fl & state::flags::frame) != state::flags::none) {
-          std::string frame;
-
-          if (s.frame_highlight_fg != s.info->default_foreground)
-            std::format_to(std::back_inserter(frame), "\e[38;2;{};{};{}m", s.frame_highlight_fg.r, s.frame_highlight_fg.g, s.frame_highlight_fg.b);
-          auto f = (s.fl & state::flags::frame) == state::flags::frame_line ? "─" : "\N{LOWER HALF BLOCK}";
-          for (size_t i = 0; i < s.term_cols; ++i)
-            frame.append(f);
-          frame.append("\n\n");
-          f = (s.fl & state::flags::frame) == state::flags::frame_line ? "─" : "\N{UPPER HALF BLOCK}";
-          for (size_t i = 0; i < s.term_cols; ++i)
-            frame.append(f);
-          if (s.frame_highlight_fg != s.info->default_foreground)
-            frame.append("\e[0m");
-          frame.append("\e[1F");
-          ::write(s.fd, frame.data(), frame.size());
-          s.cur_frame_lines = 1;
-
-          if (s.text_default_fg != terminal::info::color{}) {
-            auto colsel = std::format("\e[38;2;{};{};{};48;2;{};{};{}m", s.text_default_fg.r, s.text_default_fg.g, s.text_default_fg.b, s.text_default_bg.r, s.text_default_bg.g, s.text_default_bg.b);
-            ::write(s.fd, colsel.data(), colsel.size());
-          }
-        } else
-          s.cur_frame_lines = 0;
-
-        // Get current position.
-        std::tie(s.initial_col, s.initial_row) = s.term_state != fd_state::no_terminal ? get_current_pos(s.tkfd) : std::tuple{0u, 0u};
-        assert(s.initial_col == 1);
-
-        s.offset = 0u;
-        s.nchars = 0u;
-        s.pos_x = 0u;
-        s.pos_y = 0u;
-        s.line_offset = {0u};
-
-        s.prompt_len = 0u;
-
-        // For interactive use.
-        assert(s.buffer.empty());
-
-        std::string prompt;
-        if (std::holds_alternative<std::string>(s.prompt))
-          prompt = std::get<std::string>(s.prompt);
-        else
-          prompt = std::get<state::string_callback>(s.prompt)();
-
-        s.prompt_len = nonescape_len(prompt);
-
-        if (! prompt.empty()) {
-          if (s.osc133)
-            ::write(s.fd, osc133_A, strlen(osc133_A));
-          ::write(s.fd, prompt.data(), prompt.size());
-        }
-        if (s.osc133)
-          ::write(s.fd, osc133_B, strlen(osc133_B));
-
-        s.pos_x = s.prompt_len;
-
-        // Clear to end of line.  This also fills in the background color, if needed.
-        ::write(s.fd, "\e[K", 3);
-
-        if (! s.empty_message.empty()) {
-          // Determine the foregroun color to use.  It should be darker than the usual.
-          terminal::info::color fg;
-          terminal::info::color bg;
-          if ((s.fl & state::flags::frame) != state::flags::frame_background)
-            std::tie(fg, bg) = adjust_rgb(s.info->default_foreground, s.info->default_background, 48);
-          else
-            std::tie(fg, bg) = adjust_rgb(s.text_default_fg, s.text_default_bg, 48);
-          s.empty_message_fg = bg;
-
-          show_empty_message(s);
-        }
-      }
-
-      bool done = false;
-      int timeout = -1;
-      while (! done) {
-        std::array<epoll_event, 1> epev;
-        TermKeyKey key;
-
-        auto n = ::epoll_wait(s.epfd, epev.data(), epev.size(), s.term_state == fd_state::no_terminal ? 0 : timeout);
-
-        if (n == 0) {
-          // Time out.
-          if (::termkey_getkey_force(s.tk, &key) == ::TERMKEY_RES_KEY) {
-            if (on_key(s, key)) {
-              done = true;
-              continue;
-            }
-          }
-        }
-
-        if (s.term_state == fd_state::no_terminal) {
-          // First check whether the buffer already contains the next full line.
-          auto end = std::find(s.buffer.begin(), s.buffer.begin() + s.filled, '\r');
-          while (end == s.buffer.end() && ! done) {
-            if (s.filled == s.buffer.size()) [[unlikely]]
-              s.buffer.resize(s.filled + 4096);
-
-            auto nread = ::read(s.fd, s.buffer.data() + s.filled, s.buffer.size() - s.filled);
-            if (nread <= 0) {
-              end = s.buffer.begin() + s.filled;
-              done = true;
-            } else {
-              end = std::find(s.buffer.begin(), s.buffer.begin() + s.filled, '\n');
-              if (end != s.buffer.end() && *end == '\n')
-                ++end;
-            }
-          }
-          len = end - s.buffer.begin();
-        } else if (n > 0 && epev[0].data.fd == s.tkfd) {
-          ::termkey_advisereadable(s.tk);
-
-          ::TermKeyResult r;
-          while ((r = ::termkey_getkey(s.tk, &key)) == ::TERMKEY_RES_KEY) {
-            if (key.type == ::TERMKEY_TYPE_UNICODE && key.modifiers == ::TERMKEY_KEYMOD_CTRL) {
-              if (key.code.codepoint == 'C' || key.code.codepoint == 'c' || (s.buffer.empty() && (key.code.codepoint == 'D' || key.code.codepoint == 'd'))) {
-                done = true;
-                break;
-              }
-            }
-
-            if (on_key(s, key)) {
-              done = true;
-              break;
-            }
+        ::TermKeyKey key;
+        ::TermKeyResult r;
+        while ((r = ::termkey_getkey(s.tk, &key)) == ::TERMKEY_RES_KEY) {
+          if (key.type == ::TERMKEY_TYPE_UNICODE && key.modifiers == ::TERMKEY_KEYMOD_CTRL) {
+            if (key.code.codepoint == 'C' || key.code.codepoint == 'c' || (s.buffer.empty() && (key.code.codepoint == 'D' || key.code.codepoint == 'd')))
+              return {true, true};
           }
 
-          if (r == ::TERMKEY_RES_EOF)
-            done = true;
-
-          len = s.buffer.size();
+          if (on_key(s, key))
+            return {true, true};
         }
 
-        if (n > 0 && epev[0].data.fd == s.sigfd) {
-          ::signalfd_siginfo si;
-          ::read(s.sigfd, &si, sizeof(si));
-          std::tie(s.term_cols, s.term_rows) = update_winsize(s.fd);
+        if (r == ::TERMKEY_RES_EOF)
+          return {true, true};
+      } else if (epev.data.fd == s.sigfd) {
+        ::signalfd_siginfo si;
+        ::read(s.sigfd, &si, sizeof(si));
+        std::tie(s.term_cols, s.term_rows) = update_winsize(s.fd);
 
-          // TODO: query cursor position and also if necesary adjust what is visible
-        }
-      }
+        // TODO: query cursor position and also if necesary adjust what is visible
+      } else
+        return {false, false};
+
+      return {true, false};
+    }
+
+
+    void finalize(state& s)
+    {
       if (s.text_default_fg != terminal::info::color{})
         ::write(s.fd, "\e[m", 3);
 
-      if (s.term_state != fd_state::no_terminal && s.osc133)
+      if (s.osc133)
         ::write(s.fd, osc133_C, strlen(osc133_C));
+    }
 
-      return len;
+
+    void the_loop(state& s)
+    {
+      s.prepare();
+
+      std::array<::epoll_event, 1> epev;
+      do {
+        auto n = ::epoll_wait(s.epfd, epev.data(), epev.size(), -1);
+        assert(n > 0);
+      } while (! std::get<1>(handle_one(s, epev[0])));
+
+      finalize(s);
+    }
+
+
+    void init_state(state& s)
+    {
+      TERMKEY_CHECK_VERSION;
+
+      if ((s.fl & state::flags::frame) == state::flags::frame_background) {
+        // We use as foreground a slightly adjusted version of the default background colors.
+        auto [fg, bg] = adjust_rgb(s.info->default_foreground, s.info->default_background, 32);
+        s.frame_highlight_fg = bg;
+        s.text_default_fg = fg;
+        s.text_default_bg = bg;
+      }
+
+      s.osc133 = s.info->feature_set.contains(terminal::scroll_markers);
+
+      sigset_t mask;
+      sigemptyset(&mask);
+      sigaddset(&mask, SIGWINCH);
+      if (::sigprocmask(SIG_BLOCK, &mask, &s.old_mask) != 0) [[unlikely]]
+        // This really should never happen.
+        ::error(EXIT_FAILURE, errno, "sigprocmask failed ?!");
+
+      std::tie(s.term_cols, s.term_rows) = update_winsize(s.fd);
+
+      s.sigfd = ::signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC);
+      if (s.sigfd == -1) [[unlikely]]
+        // This really should never happen.
+        ::error(EXIT_FAILURE, errno, "sigfd failed ?!");
+
+      epoll_event epev;
+      epev.events = EPOLLIN | EPOLLERR;
+      epev.data.fd = s.tkfd;
+      if (::epoll_ctl(s.epfd, EPOLL_CTL_ADD, s.tkfd, &epev) != 0) {
+        if (errno == EPERM) {
+          assert(s.tk == nullptr);
+          throw std::filesystem::filesystem_error("cannot use file descriptor", std::make_error_code(std::errc::inappropriate_io_control_operation));
+        } else [[unlikely]]
+          ::error(EXIT_FAILURE, errno, "epoll_ctl failed");
+      } else
+        ::fcntl(s.fd, F_SETFL, ::fcntl(s.fd, F_GETFL) | O_NONBLOCK);
+
+      epev.events = EPOLLIN | EPOLLERR;
+      epev.data.fd = s.sigfd;
+      if (::epoll_ctl(s.epfd, EPOLL_CTL_ADD, s.sigfd, &epev) != 0) [[unlikely]]
+        ::error(EXIT_FAILURE, errno, "epoll_ctl failed");
     }
 
   } // anonymous namespace
 
 
-  state::state(int fd_, flags fl_) : fd(fd_), fl(fl_), info(terminal::info::alloc(fd)), frame_highlight_fg(info->default_foreground), tk(::termkey_new(fd, 0)), tkfd(::termkey_get_fd(tk))
+  state::state(int fd_, flags fl_) : fd(fd_), fl(fl_), info(terminal::info::alloc(fd)), frame_highlight_fg(info->default_foreground), tk(::termkey_new(fd, 0)), tkfd(::termkey_get_fd(tk)), epfd(::epoll_create1(EPOLL_CLOEXEC)), extern_epfd(false)
   {
-    TERMKEY_CHECK_VERSION;
-
-    if ((fl & flags::frame) == flags::frame_background) {
-      // We use as foreground a slightly adjusted version of the default background colors.
-      auto [fg, bg] = adjust_rgb(info->default_foreground, info->default_background, 32);
-      frame_highlight_fg = bg;
-      text_default_fg = fg;
-      text_default_bg = bg;
-    }
-
-    osc133 = info->feature_set.contains(terminal::scroll_markers);
-
-    sigset_t mask;
-    sigemptyset(&mask);
-    sigaddset(&mask, SIGWINCH);
-    if (::sigprocmask(SIG_BLOCK, &mask, &old_mask) != 0) [[unlikely]]
-      // This really should never happen.
-      ::error(EXIT_FAILURE, errno, "sigprocmask failed ?!");
-
-    std::tie(term_cols, term_rows) = update_winsize(fd);
-
-    epfd = ::epoll_create1(EPOLL_CLOEXEC);
     if (epfd == -1) [[unlikely]]
       // This really should never happen.
       ::error(EXIT_FAILURE, errno, "epoll_create failed ?!");
 
-    sigfd = ::signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC);
-    if (sigfd == -1) [[unlikely]]
-      // This really should never happen.
-      ::error(EXIT_FAILURE, errno, "sigfd failed ?!");
+    init_state(*this);
+  }
 
-    epoll_event epev;
-    epev.events = EPOLLIN | EPOLLERR;
-    epev.data.fd = tkfd;
-    if (::epoll_ctl(epfd, EPOLL_CTL_ADD, tkfd, &epev) != 0) {
-      if (errno == EPERM) {
-        assert(tk == nullptr);
-        term_state = fd_state::no_terminal;
-      } else [[unlikely]]
-        ::error(EXIT_FAILURE, errno, "epoll_ctl failed");
-    } else
-      ::fcntl(fd, F_SETFL, ::fcntl(fd, F_GETFL) | O_NONBLOCK);
 
-    epev.events = EPOLLIN | EPOLLERR;
-    epev.data.fd = sigfd;
-    if (::epoll_ctl(epfd, EPOLL_CTL_ADD, sigfd, &epev) != 0) [[unlikely]]
-      ::error(EXIT_FAILURE, errno, "epoll_ctl failed");
+  state::state(int epfd_, int fd_, flags fl_) : fd(fd_), fl(fl_), info(terminal::info::alloc(fd)), frame_highlight_fg(info->default_foreground), tk(::termkey_new(fd, 0)), tkfd(::termkey_get_fd(tk)), epfd(epfd_), extern_epfd(true)
+  {
+    init_state(*this);
   }
 
 
   state::~state()
   {
     ::close(sigfd);
-    ::close(epfd);
+    if (! extern_epfd)
+      ::close(epfd);
     ::sigprocmask(SIG_SETMASK, &old_mask, nullptr);
     ::termkey_destroy(tk);
   }
@@ -940,14 +846,109 @@ namespace nrl {
   }
 
 
-  std::string_view read(state& s)
+  std::string_view state::read()
   {
-    s.buffer.erase(s.buffer.begin(), s.buffer.begin() + s.returned);
-    s.filled -= s.returned;
+    the_loop(*this);
 
-    auto n = the_loop(s);
+    return std::string_view(reinterpret_cast<char*>(buffer.data()), buffer.size());
+  }
 
-    return std::string_view(reinterpret_cast<char*>(s.buffer.data()), n);
+
+  void state::prepare()
+  {
+    buffer.clear();
+
+    // Move to the next line beginning.
+    if (osc133)
+      ::write(fd, osc133_L, strlen(osc133_L));
+    else
+      ::write(fd, "\r", 1);
+
+    if ((fl & state::flags::frame) != state::flags::none) {
+      std::string frame;
+
+      if (frame_highlight_fg != info->default_foreground)
+        std::format_to(std::back_inserter(frame), "\e[38;2;{};{};{}m", frame_highlight_fg.r, frame_highlight_fg.g, frame_highlight_fg.b);
+      auto f = (fl & state::flags::frame) == state::flags::frame_line ? "─" : "\N{LOWER HALF BLOCK}";
+      for (size_t i = 0; i < term_cols; ++i)
+        frame.append(f);
+      frame.append("\n\n");
+      f = (fl & state::flags::frame) == state::flags::frame_line ? "─" : "\N{UPPER HALF BLOCK}";
+      for (size_t i = 0; i < term_cols; ++i)
+        frame.append(f);
+      if (frame_highlight_fg != info->default_foreground)
+        frame.append("\e[0m");
+      frame.append("\e[1F");
+      ::write(fd, frame.data(), frame.size());
+      cur_frame_lines = 1;
+
+      if (text_default_fg != terminal::info::color{}) {
+        auto colsel = std::format("\e[38;2;{};{};{};48;2;{};{};{}m", text_default_fg.r, text_default_fg.g, text_default_fg.b, text_default_bg.r, text_default_bg.g, text_default_bg.b);
+        ::write(fd, colsel.data(), colsel.size());
+      }
+    } else
+      cur_frame_lines = 0;
+
+    // Get current position.
+    std::tie(initial_col, initial_row) = get_current_pos(tkfd);
+    assert(initial_col == 1);
+
+    offset = 0u;
+    nchars = 0u;
+    pos_x = 0u;
+    pos_y = 0u;
+    line_offset = {0u};
+
+    prompt_len = 0u;
+
+    // For interactive use.
+    assert(buffer.empty());
+
+    std::string prompt_str;
+    if (std::holds_alternative<std::string>(prompt))
+      prompt_str = std::get<std::string>(prompt);
+    else
+      prompt_str = std::get<state::string_callback>(prompt)();
+
+    prompt_len = nonescape_len(prompt_str);
+
+    if (! prompt_str.empty()) {
+      if (osc133)
+        ::write(fd, osc133_A, strlen(osc133_A));
+      ::write(fd, prompt_str.data(), prompt_str.size());
+    }
+    if (osc133)
+      ::write(fd, osc133_B, strlen(osc133_B));
+
+    pos_x = prompt_len;
+
+    // Clear to end of line.  This also fills in the background color, if needed.
+    ::write(fd, "\e[K", 3);
+
+    if (! empty_message.empty()) {
+      // Determine the foregroun color to use.  It should be darker than the usual.
+      terminal::info::color fg;
+      terminal::info::color bg;
+      if ((fl & state::flags::frame) != state::flags::frame_background)
+        std::tie(fg, bg) = adjust_rgb(info->default_foreground, info->default_background, 48);
+      else
+        std::tie(fg, bg) = adjust_rgb(text_default_fg, text_default_bg, 48);
+      empty_message_fg = bg;
+
+      show_empty_message(*this);
+    }
+  }
+
+
+  std::expected<std::string_view, bool> state::handle(::epoll_event& epev)
+  {
+    auto [handled, done] = handle_one(*this, epev);
+    if (! done)
+      return std::unexpected(handled);
+
+    finalize(*this);
+
+    return std::string_view(reinterpret_cast<char*>(buffer.data()), buffer.size());
   }
 
 } // namespace nrl
