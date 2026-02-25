@@ -622,7 +622,7 @@ namespace nrl {
       {{true, 0, ::TERMKEY_SYM_DOWN}, cb_next_screen_line},
       {{true, 0, ::TERMKEY_SYM_BACKSPACE}, cb_backspace},
       {{true, 0, ::TERMKEY_SYM_DELETE}, cb_delete},
-      {{false, 2, 'b'}, cb_backward_word},
+      {{false, ::TERMKEY_KEYMOD_ALT, 'b'}, cb_backward_word},
       {{false, ::TERMKEY_KEYMOD_ALT, 'f'}, cb_forward_word},
       {{false, ::TERMKEY_KEYMOD_CTRL, 'u'}, cb_unix_line_discard},
       {{false, ::TERMKEY_KEYMOD_CTRL, 'k'}, cb_kill_line},
