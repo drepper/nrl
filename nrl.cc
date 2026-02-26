@@ -811,19 +811,7 @@ namespace nrl {
 
     void finalize(handle& s)
     {
-      if (s.text_default_fg != terminal::info::color{})
-        ::write(s.fd, "\e[m", 3);
-
-      if (s.osc133)
-        ::write(s.fd, osc133_C, strlen(osc133_C));
-
-      cleanup_epoll(s);
-    }
-
-
-    void leave(handle& s)
-    {
-      std::array<iovec, 7> iov;
+      std::array<iovec, 9> iov;
       int niov = 0;
 
       char movbuf1[40];
@@ -853,7 +841,15 @@ namespace nrl {
       movbuf4[nmovbuf4++] = '\n';
       iov[niov++] = {movbuf4, nmovbuf4};
 
+      if (s.text_default_fg != terminal::info::color{})
+        iov[niov++] = {const_cast<char*>("\e[m"), 3};
+
+      if (s.osc133)
+        iov[niov++] = {const_cast<char*>(osc133_C), strlen(osc133_C)};
+
       ::writev(s.fd, iov.data(), niov);
+
+      cleanup_epoll(s);
     }
 
 
@@ -866,8 +862,6 @@ namespace nrl {
         auto n = TEMP_FAILURE_RETRY(::epoll_wait(s.epfd, epev.data(), epev.size(), -1));
         assert(n > 0);
       } while (! std::get<1>(handle_one(s, epev[0])));
-
-      leave(s);
 
       finalize(s);
     }
