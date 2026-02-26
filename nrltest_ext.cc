@@ -44,7 +44,7 @@ int main(int argc, [[maybe_unused]] char* argv[])
       if (res) {
         if (res->empty())
           break;
-        std::println("\ninput = {}", *res);
+        std::println("input = {}", *res);
       } else if (! res.error()) {
         std::println("unhandled file descriptor {}", int(epev[0].data.fd));
       }

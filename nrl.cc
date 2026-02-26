@@ -339,7 +339,8 @@ namespace nrl {
       }
 
       char movbuf4[40];
-      size_t nmovbuf4 = move_to_buf(movbuf4, sizeof(movbuf4), s, s.term_cols - 1, ((s.fl & handle::flags::frame) == handle::flags::none ? s.line_offset.size() : s.max_lines) - 1 + s.cur_frame_lines);
+      size_t nmovbuf4 = move_to_buf(movbuf4, sizeof(movbuf4) - 1, s, s.term_cols - 1, ((s.fl & handle::flags::frame) == handle::flags::none ? s.line_offset.size() : s.max_lines) - 1 + s.cur_frame_lines);
+      movbuf4[nmovbuf4++] = '\n';
       iov[niov++] = {movbuf4, nmovbuf4};
 
       ::writev(s.fd, iov.data(), niov);

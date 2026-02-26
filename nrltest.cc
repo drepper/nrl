@@ -25,6 +25,6 @@ int main(int argc, [[maybe_unused]] char* argv[])
     auto l = s.read();
     if (l.empty())
       break;
-    std::println("\ninput = {}", l);
+    std::println("input = {}", l);
   }
 }
