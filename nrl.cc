@@ -311,39 +311,8 @@ namespace nrl {
       return false;
     }
 
-    bool cb_enter(handle& s)
+    bool cb_enter([[maybe_unused]] handle& s)
     {
-      std::array<iovec, 7> iov;
-      int niov = 0;
-
-      char movbuf1[40];
-      char movbuf2[40];
-      std::string frame;
-      if ((s.fl & handle::flags::frame) == handle::flags::frame_line && s.frame_highlight_fg != s.info->default_foreground) {
-        // Undo the frame highlighting.
-        for (size_t i = 0; i < s.term_cols; ++i)
-          frame.append("─");
-        size_t nmovbuf1 = move_to_buf(movbuf1, sizeof(movbuf1), s, 0, -1);
-        iov[niov++] = {movbuf1, nmovbuf1};
-        iov[niov++] = {frame.data(), frame.size()};
-        size_t nmovbuf2 = move_to_buf(movbuf2, sizeof(movbuf2), s, 0, s.max_lines);
-        iov[niov++] = {movbuf2, nmovbuf2};
-        iov[niov++] = {frame.data(), frame.size()};
-      }
-
-      char movbuf3[40];
-      if (s.buffer.empty() && ! s.empty_message.empty()) {
-        size_t nmovbuf3 = move_to_buf(movbuf3, sizeof(movbuf3), s, s.pos_x, s.pos_y);
-        iov[niov++] = {movbuf3, nmovbuf3};
-        iov[niov++] = {const_cast<char*>("\e[K"), 3zu};
-      }
-
-      char movbuf4[40];
-      size_t nmovbuf4 = move_to_buf(movbuf4, sizeof(movbuf4) - 1, s, s.term_cols - 1, ((s.fl & handle::flags::frame) == handle::flags::none ? s.line_offset.size() : s.max_lines) - 1 + s.cur_frame_lines);
-      movbuf4[nmovbuf4++] = '\n';
-      iov[niov++] = {movbuf4, nmovbuf4};
-
-      ::writev(s.fd, iov.data(), niov);
       return true;
     }
 
@@ -852,15 +821,53 @@ namespace nrl {
     }
 
 
+    void leave(handle& s)
+    {
+      std::array<iovec, 7> iov;
+      int niov = 0;
+
+      char movbuf1[40];
+      char movbuf2[40];
+      std::string frame;
+      if ((s.fl & handle::flags::frame) == handle::flags::frame_line && s.frame_highlight_fg != s.info->default_foreground) {
+        // Undo the frame highlighting.
+        for (size_t i = 0; i < s.term_cols; ++i)
+          frame.append("─");
+        size_t nmovbuf1 = move_to_buf(movbuf1, sizeof(movbuf1), s, 0, -1);
+        iov[niov++] = {movbuf1, nmovbuf1};
+        iov[niov++] = {frame.data(), frame.size()};
+        size_t nmovbuf2 = move_to_buf(movbuf2, sizeof(movbuf2), s, 0, s.max_lines);
+        iov[niov++] = {movbuf2, nmovbuf2};
+        iov[niov++] = {frame.data(), frame.size()};
+      }
+
+      char movbuf3[40];
+      if (s.buffer.empty() && ! s.empty_message.empty()) {
+        size_t nmovbuf3 = move_to_buf(movbuf3, sizeof(movbuf3), s, s.pos_x, s.pos_y);
+        iov[niov++] = {movbuf3, nmovbuf3};
+        iov[niov++] = {const_cast<char*>("\e[K"), 3zu};
+      }
+
+      char movbuf4[40];
+      size_t nmovbuf4 = move_to_buf(movbuf4, sizeof(movbuf4) - 1, s, s.term_cols - 1, ((s.fl & handle::flags::frame) == handle::flags::none ? s.line_offset.size() : s.max_lines) - 1 + s.cur_frame_lines);
+      movbuf4[nmovbuf4++] = '\n';
+      iov[niov++] = {movbuf4, nmovbuf4};
+
+      ::writev(s.fd, iov.data(), niov);
+    }
+
+
     void the_loop(handle& s)
     {
       s.prepare();
 
       std::array<::epoll_event, 1> epev;
       do {
-        auto n = ::epoll_wait(s.epfd, epev.data(), epev.size(), -1);
+        auto n = TEMP_FAILURE_RETRY(::epoll_wait(s.epfd, epev.data(), epev.size(), -1));
         assert(n > 0);
       } while (! std::get<1>(handle_one(s, epev[0])));
+
+      leave(s);
 
       finalize(s);
     }
