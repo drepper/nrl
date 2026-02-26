@@ -836,13 +836,13 @@ namespace nrl {
         iov[niov++] = {const_cast<char*>("\e[K"), 3zu};
       }
 
+      if (s.text_default_fg != terminal::info::color{})
+        iov[niov++] = {const_cast<char*>("\e[m"), 3};
+
       char movbuf4[40];
       size_t nmovbuf4 = move_to_buf(movbuf4, sizeof(movbuf4) - 1, s, s.term_cols - 1, ((s.fl & handle::flags::frame) == handle::flags::none ? s.line_offset.size() : s.max_lines) - 1 + s.cur_frame_lines);
       movbuf4[nmovbuf4++] = '\n';
       iov[niov++] = {movbuf4, nmovbuf4};
-
-      if (s.text_default_fg != terminal::info::color{})
-        iov[niov++] = {const_cast<char*>("\e[m"), 3};
 
       if (s.osc133)
         iov[niov++] = {const_cast<char*>(osc133_C), strlen(osc133_C)};
@@ -870,14 +870,6 @@ namespace nrl {
     void init_state(handle& s)
     {
       TERMKEY_CHECK_VERSION;
-
-      if ((s.fl & handle::flags::frame) == handle::flags::frame_background) {
-        // We use as foreground a slightly adjusted version of the default background colors.
-        auto [fg, bg] = adjust_rgb(s.info->default_foreground, s.info->default_background, 32);
-        s.frame_highlight_fg = bg;
-        s.text_default_fg = fg;
-        s.text_default_bg = bg;
-      }
 
       s.osc133 = s.info->feature_set.contains(terminal::scroll_markers);
 
@@ -956,6 +948,14 @@ namespace nrl {
       setup_epoll(*this);
 
       buffer.clear();
+
+      if ((fl & handle::flags::frame) == handle::flags::frame_background) {
+        // We use as foreground a slightly adjusted version of the default background colors.
+        auto [fg, bg] = adjust_rgb(info->default_foreground, info->default_background, 32);
+        frame_highlight_fg = bg;
+        text_default_fg = fg;
+        text_default_bg = bg;
+      }
 
       // Move to the next line beginning.
       if (osc133)
