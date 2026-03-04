@@ -507,6 +507,7 @@ namespace nrl {
     {
       if (s.offset > 0) {
         s.buffer.erase(s.buffer.begin(), s.buffer.begin() + s.offset);
+        s.offset = 0;
         auto old_nlines = s.line_offset.size();
         s.pos_x = s.prompt_len;
         s.pos_y = 0;
