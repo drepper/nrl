@@ -31,10 +31,9 @@ int main(int argc, [[maybe_unused]] char* argv[])
     s.set_prompt("INPUT> ");
     s.empty_message = "Type something …";
 
-    while (true) {
-      // We can call prepare unconditionally.
-      s.prepare();
+    s.prepare();
 
+    while (true) {
       std::array<epoll_event, 1> epev;
 
       auto n = ::epoll_wait(epfd, epev.data(), epev.size(), -1);
@@ -45,6 +44,8 @@ int main(int argc, [[maybe_unused]] char* argv[])
         if (res->empty())
           break;
         std::println("input = {}", *res);
+
+        s.prepare();
       } else if (! res.error()) {
         std::println("unhandled file descriptor {}", int(epev[0].data.fd));
       }
