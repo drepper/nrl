@@ -909,15 +909,9 @@ namespace nrl {
   }
 
 
-  void handle::set_prompt(const char* s)
+  void handle::set_prompt(std::string&& s)
   {
-    prompt = s;
-  }
-
-
-  void handle::set_prompt(const std::string& s)
-  {
-    prompt = s;
+    prompt = std::move(s);
   }
 
 

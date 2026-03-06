@@ -38,12 +38,13 @@ namespace nrl {
     std::string_view read();
 
     void prepare();
+    void prepare(const std::vector<std::string>& select);
     std::expected<std::string_view, bool> process(::epoll_event& epev);
 
     using string_callback = const char* (*) ();
 
-    void set_prompt(const char* s);
-    void set_prompt(const std::string& s);
+    void set_prompt(std::string&& s);
+    void set_prompt(const char* s) { return set_prompt(std::string_view{s}); }
     void set_prompt(const std::string_view s);
     void set_prompt(string_callback prompt_fct);
 
