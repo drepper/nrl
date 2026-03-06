@@ -31,7 +31,7 @@ int main(int argc, [[maybe_unused]] char* argv[])
     s.set_prompt("INPUT> ");
     s.empty_message = "Type something …";
 
-    s.prepare();
+    s.prepare({"otherwise", "option #1", "option #2"});
 
     while (true) {
       std::array<epoll_event, 1> epev;

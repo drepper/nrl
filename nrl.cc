@@ -1,7 +1,9 @@
 #include "nrl.hh"
 #include <cstddef>
 #include <filesystem>
+#include <iterator>
 #include <system_error>
+#include <vector>
 
 #if defined __cpp_modules && __cpp_modules >= 201810L
 import std;
@@ -212,6 +214,12 @@ namespace nrl {
     const char osc133_C[] = "\e]133;C\a";
 
 
+    void move_to_str(std::string& d, handle& s, int x, int y)
+    {
+      std::format_to(std::back_inserter(d), "\e[{};{}H", s.initial_row + y, s.initial_col + x);
+    }
+
+
     auto move_to_buf(char* buf, size_t n, handle& s, int x, int y)
     {
       return snprintf(buf, n, "\e[%u;%uH", s.initial_row + y, s.initial_col + x);
@@ -261,6 +269,47 @@ namespace nrl {
         o = next;
         avail = s.term_cols;
       }
+    }
+
+
+    void show_options(handle& s)
+    {
+      std::string outs;
+      if (s.initial_row + s.select_options.size() > s.term_rows) {
+        auto nscrolled = s.initial_row + s.select_options.size() - s.term_rows;
+        outs = std::format("\e[{}S", nscrolled);
+        s.initial_row -= nscrolled;
+      }
+
+      move_to_str(outs, s, s.prompt_len, 1);
+      if ((s.fl & handle::flags::frame) != handle::flags::none)
+        // std::format_to(std::back_inserter(outs), "\e[38;2;{};{};{}m", s.empty_message_fg.r, s.empty_message_fg.g, s.empty_message_fg.b);
+        outs.append("\e[0m");
+      outs.append("\N{BOX DRAWINGS LIGHT VERTICAL}\e[0m");
+      for (size_t i = 1; i + 1 < s.select_options.size(); ++i) {
+        move_to_str(outs, s, s.prompt_len, 1 + i);
+        outs.append("\e[2K\N{BOX DRAWINGS LIGHT VERTICAL AND RIGHT}\N{BOX DRAWINGS LIGHT HORIZONTAL} ");
+        if (s.select_idx == i)
+          outs.append("\e[7m");
+        outs.append(s.select_options[i]);
+        if (s.select_idx == i)
+          outs.append("\e[27m");
+      }
+      move_to_str(outs, s, s.prompt_len, s.select_options.size());
+      outs.append("\e[2K\N{BOX DRAWINGS LIGHT UP AND RIGHT}\N{BOX DRAWINGS LIGHT HORIZONTAL} ");
+      if (s.select_idx + 1 == s.select_options.size())
+        outs.append("\e[7m");
+      outs.append(s.select_options.back());
+      if (s.select_idx + 1 == s.select_options.size())
+        outs.append("\e[27m");
+
+      if (s.select_idx == 0) {
+        move_to_str(outs, s, s.pos_x, s.pos_y);
+        outs.append("\e[?25h");
+      } else
+        outs.append("\e[?25l");
+
+      ::write(s.fd, outs.data(), outs.size());
     }
 
 
@@ -361,7 +410,11 @@ namespace nrl {
 
     bool cb_previous_screen_line(handle& s)
     {
-      if (s.pos_y > 0) {
+      if (s.select_idx > 0) {
+        if (s.select_idx > 1 || ! s.select_options.front().empty())
+          --s.select_idx;
+        show_options(s);
+      } else if (s.pos_y > 0) {
         if (s.pos_y > 1 || s.requested_pos_x >= s.prompt_len) {
           s.pos_y -= 1;
           std::tie(s.offset, s.pos_x) = offset_after_n_chars(s, s.requested_pos_x - (s.pos_y == 0 ? s.prompt_len : 0), s.line_offset[s.pos_y]);
@@ -380,6 +433,9 @@ namespace nrl {
         s.requested_pos_x = s.pos_x;
         std::tie(s.offset, s.pos_x) = offset_after_n_chars(s, s.requested_pos_x, s.line_offset[s.pos_y]);
         move_to(s, s.pos_x, s.pos_y);
+      } else if (s.select_idx + 1 < s.select_options.size()) {
+        ++s.select_idx;
+        show_options(s);
       }
       return false;
     }
@@ -503,29 +559,35 @@ namespace nrl {
     }
 
 
+    void redisplay(handle& s)
+    {
+      auto old_nlines = s.line_offset.size();
+      s.pos_x = s.prompt_len;
+      s.pos_y = 0;
+      recompute_line_offset(s, 0);
+      // clang-format off
+      char movbuf[40];
+      size_t nmovbuf = move_to_buf(movbuf, sizeof(movbuf), s, s.pos_x, s.pos_y);
+      std::vector<iovec> iov
+      {
+        {movbuf, nmovbuf},
+        {s.buffer.data(), s.buffer.size()},
+        {const_cast<char*>("\e[K"), 3},
+      };
+      // clang-format on
+      while (old_nlines-- > s.line_offset.size())
+        iov.emplace_back(const_cast<char*>("\n\e[K"), 4);
+      iov.emplace_back(movbuf, nmovbuf);
+      ::writev(s.fd, iov.data(), iov.size());
+    }
+
+
     bool cb_unix_line_discard(handle& s)
     {
       if (s.offset > 0) {
         s.buffer.erase(s.buffer.begin(), s.buffer.begin() + s.offset);
         s.offset = 0;
-        auto old_nlines = s.line_offset.size();
-        s.pos_x = s.prompt_len;
-        s.pos_y = 0;
-        recompute_line_offset(s, 0);
-        // clang-format off
-        char movbuf[40];
-        size_t nmovbuf = move_to_buf(movbuf, sizeof(movbuf), s, s.pos_x, s.pos_y);
-        std::vector<iovec> iov
-        {
-          {movbuf, nmovbuf},
-          {s.buffer.data(), s.buffer.size()},
-          {const_cast<char*>("\e[K"), 3},
-        };
-        // clang-format on
-        while (old_nlines-- > s.line_offset.size())
-          iov.emplace_back(const_cast<char*>("\n\e[K"), 4);
-        iov.emplace_back(movbuf, nmovbuf);
-        ::writev(s.fd, iov.data(), iov.size());
+        redisplay(s);
       }
       return false;
     }
@@ -556,7 +618,7 @@ namespace nrl {
     }
 
 
-    void show_empty_message(handle& s)
+    void show_empty_message(handle& s, std::string& msg)
     {
       auto colon = std::format("\e[38;2;{};{};{}m", s.empty_message_fg.r, s.empty_message_fg.g, s.empty_message_fg.b);
       std::string coloff;
@@ -570,7 +632,7 @@ namespace nrl {
       std::array<iovec, 4> iov{
         {
           {colon.data(), colon.size()},
-          {s.empty_message.data(), s.empty_message.size()},
+          {msg.data(), msg.size()},
           {coloff.data(), coloff.size()},
           {movebuf, static_cast<size_t>(nmovebuf) }},
       };
@@ -706,8 +768,12 @@ namespace nrl {
         auto was_empty = s.buffer.empty();
         if (auto cb = key_map.find({true, key.modifiers & (::TERMKEY_KEYMOD_ALT | ::TERMKEY_KEYMOD_SHIFT | ::TERMKEY_KEYMOD_CTRL), key.code.sym}); cb != key_map.end()) {
           auto res = cb->second(s);
-          if (! was_empty && s.buffer.empty() && ! s.empty_message.empty()) [[unlikely]]
-            show_empty_message(s);
+
+          if (! was_empty && s.buffer.empty()) [[unlikely]] {
+            auto& msg = s.get_empty_message();
+            if (! msg.empty())
+              show_empty_message(s, msg);
+          }
           return res;
         }
       }
@@ -812,7 +878,7 @@ namespace nrl {
 
     void finalize(handle& s)
     {
-      std::array<iovec, 9> iov;
+      std::array<iovec, 10> iov;
       int niov = 0;
 
       char movbuf1[40];
@@ -831,7 +897,12 @@ namespace nrl {
       }
 
       char movbuf3[40];
-      if (s.buffer.empty() && ! s.empty_message.empty()) {
+      if (s.select_idx > 0) {
+        s.buffer.clear();
+        s.buffer.assign_range(s.select_options[s.select_idx]);
+        s.offset = s.buffer.size();
+        redisplay(s);
+      } else if (s.buffer.empty() && ! s.empty_message.empty()) {
         size_t nmovbuf3 = move_to_buf(movbuf3, sizeof(movbuf3), s, s.pos_x, s.pos_y);
         iov[niov++] = {movbuf3, nmovbuf3};
         iov[niov++] = {const_cast<char*>("\e[K"), 3zu};
@@ -839,6 +910,16 @@ namespace nrl {
 
       if (s.text_default_fg != terminal::info::color{})
         iov[niov++] = {const_cast<char*>("\e[m"), 3};
+
+      std::string clearbuf;
+      if (s.select_options.size() > 1) {
+        move_to_str(clearbuf, s, 0, s.max_lines + 1);
+        for (size_t i = 2; i < s.select_options.size(); ++i)
+          clearbuf.append("\e[2K\n");
+        // Clear last line and turn cursor back on.
+        clearbuf.append("\e[2K\e[?25h");
+        iov[niov++] = {clearbuf.data(), clearbuf.size()};
+      }
 
       char movbuf4[40];
       size_t nmovbuf4 = move_to_buf(movbuf4, sizeof(movbuf4) - 1, s, s.term_cols - 1, ((s.fl & handle::flags::frame) == handle::flags::none ? s.line_offset.size() : s.max_lines) - 1 + s.cur_frame_lines);
@@ -851,6 +932,8 @@ namespace nrl {
       ::writev(s.fd, iov.data(), niov);
 
       cleanup_epoll(s);
+
+      s.select_options.clear();
     }
 
 
@@ -995,6 +1078,8 @@ namespace nrl {
 
       prompt_len = 0u;
 
+      select_idx = 0zu;
+
       // For interactive use.
       assert(buffer.empty());
 
@@ -1019,8 +1104,9 @@ namespace nrl {
       // Clear to end of line.  This also fills in the background color, if needed.
       ::write(fd, "\e[K", 3);
 
-      if (! empty_message.empty()) {
-        // Determine the foregroun color to use.  It should be darker than the usual.
+      auto& msg = get_empty_message();
+      if (! msg.empty()) {
+        // Determine the foreground color to use.  It should be darker than the usual.
         terminal::info::color fg;
         terminal::info::color bg;
         if ((fl & handle::flags::frame) != handle::flags::frame_background)
@@ -1029,9 +1115,22 @@ namespace nrl {
           std::tie(fg, bg) = adjust_rgb(text_default_fg, text_default_bg, 48);
         empty_message_fg = bg;
 
-        show_empty_message(*this);
+        show_empty_message(*this, msg);
+      }
+
+      if (select_options.size() > 1) {
+        if (select_options.front().empty())
+          select_idx = 1zu;
+        show_options(*this);
       }
     }
+  }
+
+
+  void handle::prepare(const std::vector<std::string>& select)
+  {
+    select_options = select;
+    prepare();
   }
 
 

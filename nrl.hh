@@ -58,6 +58,11 @@ namespace nrl {
     std::string empty_message{};
     terminal::info::color empty_message_fg{};
 
+    std::vector<std::string> select_options{};
+    size_t select_idx = 0;
+
+    std::string& get_empty_message() { return select_options.empty() || select_options.front().empty() ? empty_message : select_options.front(); }
+
     int fd;
     flags fl;
     state term_state = state::invalid;
