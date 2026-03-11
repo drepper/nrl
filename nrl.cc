@@ -894,6 +894,14 @@ namespace nrl {
         size_t nmovbuf2 = move_to_buf(movbuf2, sizeof(movbuf2), s, 0, s.max_lines);
         iov[niov++] = {movbuf2, nmovbuf2};
         iov[niov++] = {frame.data(), frame.size()};
+      } else if ((s.fl & handle::flags::frame) == handle::flags::frame_background && s.select_options.size() > 1) {
+        size_t nmovbuf1 = move_to_buf(movbuf1, sizeof(movbuf1), s, 0, 1);
+        iov[niov++] = {movbuf1, nmovbuf1};
+        if (s.frame_highlight_fg != s.info->default_foreground)
+          std::format_to(std::back_inserter(frame), "\e[38;2;{};{};{}m", s.frame_highlight_fg.r, s.frame_highlight_fg.g, s.frame_highlight_fg.b);
+        for (size_t i = 0; i < s.term_cols; ++i)
+          frame.append("\N{UPPER HALF BLOCK}");
+        iov[niov++] = {frame.data(), frame.size()};
       }
 
       char movbuf3[40];
