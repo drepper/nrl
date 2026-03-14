@@ -61,7 +61,7 @@ namespace nrl {
     std::vector<std::string> select_options{};
     size_t select_idx = 0;
 
-    std::string& get_empty_message() { return select_options.empty() || select_options.front().empty() ? empty_message : select_options.front(); }
+    std::string& get_empty_message() { return select_options.empty() ? empty_message : select_options.front(); }
 
     int fd;
     flags fl;
