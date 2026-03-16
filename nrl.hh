@@ -74,6 +74,7 @@ namespace nrl {
     terminal::info::color frame_highlight_fg{};
     terminal::info::color text_default_fg{};
     terminal::info::color text_default_bg{};
+    std::string colsel{};
 
     TermKey* tk;
     int tkfd;

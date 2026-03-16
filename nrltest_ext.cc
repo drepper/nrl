@@ -28,7 +28,7 @@ int main(int argc, [[maybe_unused]] char* argv[])
     if (fl == nrl::handle::flags::frame_line)
       s.frame_highlight_fg = {255, 215, 0};
 
-    s.set_prompt("INPUT> ");
+    s.set_prompt("\e[31mINPUT\e[0m> ");
     s.empty_message = "Type something …";
 
     s.prepare({"otherwise", "option #1", "option #2"});

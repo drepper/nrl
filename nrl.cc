@@ -161,6 +161,34 @@ namespace nrl {
     }
 
 
+    std::string cleanup_CSI0m(const std::string& s, const std::string& colsel)
+    {
+      std::string res;
+
+      size_t pos = 0;
+      while (true) {
+        auto csipos = s.find("\e[", pos);
+        if (csipos == std::string::npos) {
+          res.append(s.data() + pos, s.size() - pos);
+          break;
+        }
+        // Skip over the CSI.
+        csipos += 2;
+        res.append(s.data() + pos, csipos - pos);
+        if (csipos < s.size() && s[csipos] == 'm') {
+          res.append(colsel.data() + 2, colsel.size() - 2);
+          pos = csipos + 1;
+        } else if (csipos + 1 < s.size() && s[csipos] == '0' && s[csipos + 1] == 'm') {
+          res.append(colsel.data() + 2, colsel.size() - 2);
+          pos = csipos + 2;
+        } else
+          pos = csipos;
+      }
+
+      return res;
+    }
+
+
     std::tuple<unsigned, unsigned> get_current_pos(int fd)
     {
       static const char dsr[] = "\e[6n";
@@ -283,7 +311,6 @@ namespace nrl {
 
       move_to_str(outs, s, s.prompt_len, 1);
       if ((s.fl & handle::flags::frame) != handle::flags::none)
-        // std::format_to(std::back_inserter(outs), "\e[38;2;{};{};{}m", s.empty_message_fg.r, s.empty_message_fg.g, s.empty_message_fg.b);
         outs.append("\e[0m");
       outs.append("\N{BOX DRAWINGS LIGHT VERTICAL}\e[0m");
       for (size_t i = 1; i + 1 < s.select_options.size(); ++i) {
@@ -308,6 +335,9 @@ namespace nrl {
         outs.append("\e[?25h");
       } else
         outs.append("\e[?25l");
+
+      if (! s.colsel.empty() && s.select_idx == 0)
+        outs.append(s.colsel);
 
       ::write(s.fd, outs.data(), outs.size());
     }
@@ -1049,6 +1079,7 @@ namespace nrl {
       else
         ::write(fd, "\r", 1);
 
+      colsel.clear();
       if ((fl & handle::flags::frame) != handle::flags::none) {
         std::string frame;
 
@@ -1068,7 +1099,7 @@ namespace nrl {
         cur_frame_lines = 1;
 
         if (text_default_fg != terminal::info::color{}) {
-          auto colsel = std::format("\e[38;2;{};{};{};48;2;{};{};{}m", text_default_fg.r, text_default_fg.g, text_default_fg.b, text_default_bg.r, text_default_bg.g, text_default_bg.b);
+          colsel = std::format("\e[38;2;{};{};{};48;2;{};{};{}m", text_default_fg.r, text_default_fg.g, text_default_fg.b, text_default_bg.r, text_default_bg.g, text_default_bg.b);
           ::write(fd, colsel.data(), colsel.size());
         }
       } else
@@ -1102,7 +1133,8 @@ namespace nrl {
       if (! prompt_str.empty()) {
         if (osc133)
           ::write(fd, osc133_A, strlen(osc133_A));
-        ::write(fd, prompt_str.data(), prompt_str.size());
+        std::string clean_prompt = colsel.empty() ? prompt_str : cleanup_CSI0m(prompt_str, colsel);
+        ::write(fd, clean_prompt.data(), clean_prompt.size());
       }
       if (osc133)
         ::write(fd, osc133_B, strlen(osc133_B));
