@@ -939,6 +939,8 @@ namespace nrl {
         s.buffer.clear();
         s.buffer.assign_range(s.select_options[s.select_idx]);
         s.offset = s.buffer.size();
+        if (! s.colsel.empty())
+          ::write(s.fd, s.colsel.data(), s.colsel.size());
         redisplay(s);
       } else if (s.buffer.empty() && ! s.empty_message.empty()) {
         size_t nmovbuf3 = move_to_buf(movbuf3, sizeof(movbuf3), s, s.pos_x, s.pos_y);
