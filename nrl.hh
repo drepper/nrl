@@ -38,7 +38,7 @@ namespace nrl {
     std::string_view read();
 
     void prepare();
-    void prepare(const std::vector<std::string>& select);
+    void prepare(const std::vector<std::string>& select, bool multi_ = false);
     std::expected<std::string_view, bool> process(::epoll_event& epev);
 
     using string_callback = const char* (*) ();
@@ -60,6 +60,8 @@ namespace nrl {
 
     std::vector<std::string> select_options{};
     size_t select_idx = 0;
+    std::set<size_t> selected{};
+    bool multi = false;
 
     std::string& get_empty_message() { return select_options.empty() ? empty_message : select_options.front(); }
 
@@ -104,6 +106,9 @@ namespace nrl {
     unsigned prompt_len = 0;
 
     friend std::string_view read(handle&);
+
+  private:
+    void prepare_();
   };
 
 

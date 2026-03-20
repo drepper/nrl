@@ -315,7 +315,7 @@ namespace nrl {
       outs.append("\N{BOX DRAWINGS LIGHT VERTICAL}\e[0m");
       for (size_t i = 1; i + 1 < s.select_options.size(); ++i) {
         move_to_str(outs, s, s.prompt_len, 1 + i);
-        outs.append("\e[2K\N{BOX DRAWINGS LIGHT VERTICAL AND RIGHT}\N{BOX DRAWINGS LIGHT HORIZONTAL} ");
+        outs.append(std::format("\e[2K\N{BOX DRAWINGS LIGHT VERTICAL AND RIGHT}\N{BOX DRAWINGS LIGHT HORIZONTAL}{}", s.multi && s.selected.contains(i) ? "\N{BLACK RIGHT-POINTING TRIANGLE}" : " "));
         if (s.select_idx == i)
           outs.append("\e[7m");
         outs.append(s.select_options[i]);
@@ -323,7 +323,7 @@ namespace nrl {
           outs.append("\e[27m");
       }
       move_to_str(outs, s, s.prompt_len, s.select_options.size());
-      outs.append("\e[2K\N{BOX DRAWINGS LIGHT UP AND RIGHT}\N{BOX DRAWINGS LIGHT HORIZONTAL} ");
+      outs.append(std::format("\e[2K\N{BOX DRAWINGS LIGHT UP AND RIGHT}\N{BOX DRAWINGS LIGHT HORIZONTAL}{}", s.multi && s.selected.contains(s.select_options.size() - 1) ? "\N{BLACK RIGHT-POINTING TRIANGLE}" : " "));
       if (s.select_idx + 1 == s.select_options.size())
         outs.append("\e[7m");
       outs.append(s.select_options.back());
@@ -373,6 +373,7 @@ namespace nrl {
       return false;
     }
 
+
     bool cb_end_of_line(handle& s)
     {
       if (s.offset != s.buffer.size()) {
@@ -384,16 +385,19 @@ namespace nrl {
       return false;
     }
 
+
     bool cb_insert(handle& s)
     {
       s.insert = ! s.insert;
       return false;
     }
 
+
     bool cb_enter([[maybe_unused]] handle& s)
     {
       return true;
     }
+
 
     bool cb_backward_char(handle& s)
     {
@@ -417,6 +421,7 @@ namespace nrl {
       return false;
     }
 
+
     bool cb_forward_char(handle& s)
     {
       if (s.offset < s.buffer.size()) {
@@ -438,6 +443,7 @@ namespace nrl {
       return false;
     }
 
+
     bool cb_previous_screen_line(handle& s)
     {
       if (s.select_idx > 0) {
@@ -456,6 +462,7 @@ namespace nrl {
       return false;
     }
 
+
     bool cb_next_screen_line(handle& s)
     {
       if (s.pos_y + 1 < s.line_offset.size()) {
@@ -469,6 +476,7 @@ namespace nrl {
       }
       return false;
     }
+
 
     bool cb_backspace(handle& s)
     {
@@ -496,6 +504,7 @@ namespace nrl {
       return false;
     }
 
+
     bool cb_delete(handle& s)
     {
       if (s.offset < s.buffer.size()) {
@@ -521,6 +530,7 @@ namespace nrl {
       }
       return false;
     }
+
 
     bool cb_backward_word(handle& s)
     {
@@ -550,6 +560,7 @@ namespace nrl {
       }
       return false;
     }
+
 
     bool cb_forward_word(handle& s)
     {
@@ -698,6 +709,22 @@ namespace nrl {
       if (key.type == ::TERMKEY_TYPE_UNICODE) {
         if ((key.modifiers & (::TERMKEY_KEYMOD_ALT | ::TERMKEY_KEYMOD_CTRL)) == 0) {
           assert(s.offset <= s.buffer.size());
+
+          // If selections are available and the current selection is not the input field,
+          // ignore the key stroke except if multi-select is available and SPACE is pressed.
+          if (s.select_idx > 0) {
+            if (s.multi) {
+              if (s.selected.contains((s.select_idx)))
+                s.selected.erase(s.select_idx);
+              else
+                s.selected.insert(s.select_idx);
+              show_options(s);
+            }
+
+            return false;
+          }
+
+
           uint8_t buf[8];
           auto l = ::u8_uctomb(buf, key.code.codepoint, sizeof(buf));
           auto to_print = l;
@@ -935,7 +962,16 @@ namespace nrl {
       }
 
       char movbuf3[40];
-      if (s.select_idx > 0) {
+      if (s.multi) {
+        // We concatenate the selections in the buffer and separate them "\N{NO-BREAK SPACE}&\N{NO-BREAK SPACE}"
+        for (size_t i = 0; i < s.select_options.size(); ++i)
+          if (s.selected.contains(i)) {
+            if (! s.buffer.empty())
+              s.buffer.append_range("\N{NO-BREAK SPACE}&\N{NO-BREAK SPACE}");
+            s.buffer.append_range(s.select_options[i]);
+          }
+        redisplay(s);
+      } else if (s.select_idx > 0) {
         s.buffer.clear();
         s.buffer.assign_range(s.select_options[s.select_idx]);
         s.offset = s.buffer.size();
@@ -1058,7 +1094,7 @@ namespace nrl {
   }
 
 
-  void handle::prepare()
+  void handle::prepare_()
   {
     assert(term_state == state::open || term_state == state::closed);
 
@@ -1169,10 +1205,19 @@ namespace nrl {
   }
 
 
-  void handle::prepare(const std::vector<std::string>& select)
+  void handle::prepare()
+  {
+    select_options.clear();
+    multi = false;
+    prepare_();
+  }
+
+
+  void handle::prepare(const std::vector<std::string>& select, bool multi_)
   {
     select_options = select;
-    prepare();
+    multi = multi_;
+    prepare_();
   }
 
 
