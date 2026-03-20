@@ -967,7 +967,7 @@ namespace nrl {
         for (size_t i = 0; i < s.select_options.size(); ++i)
           if (s.selected.contains(i)) {
             if (! s.buffer.empty())
-              s.buffer.append_range("\N{NO-BREAK SPACE}&\N{NO-BREAK SPACE}");
+              s.buffer.append_range(s.select_sep);
             s.buffer.append_range(s.select_options[i]);
           }
         if (! s.colsel.empty())

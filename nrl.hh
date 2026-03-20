@@ -62,6 +62,7 @@ namespace nrl {
     size_t select_idx = 0;
     std::set<size_t> selected{};
     bool multi = false;
+    inline static constexpr char select_sep[] = "\N{NO-BREAK SPACE}&\N{NO-BREAK SPACE}";
 
     std::string& get_empty_message() { return select_options.empty() ? empty_message : select_options.front(); }
 
