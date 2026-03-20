@@ -20,7 +20,7 @@ int main(int argc, [[maybe_unused]] char* argv[])
   if (epfd == -1) [[unlikely]]
     ::error(EXIT_FAILURE, errno, "cannot open epoll");
 
-  auto fl = argc == 1 ? nrl::handle::flags::none : static_cast<nrl::handle::flags>(std::atol(argv[1]));
+  auto fl = argc == 1 ? nrl::handle::flags::none : static_cast<nrl::handle::flags>(std::clamp(std::atol(argv[1]), 0l, 2l));
 
   {
     nrl::handle s(epfd, STDIN_FILENO, fl);
