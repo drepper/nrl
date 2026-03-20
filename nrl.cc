@@ -970,6 +970,8 @@ namespace nrl {
               s.buffer.append_range("\N{NO-BREAK SPACE}&\N{NO-BREAK SPACE}");
             s.buffer.append_range(s.select_options[i]);
           }
+        if (! s.colsel.empty())
+          ::write(s.fd, s.colsel.data(), s.colsel.size());
         redisplay(s);
       } else if (s.select_idx > 0) {
         s.buffer.clear();
