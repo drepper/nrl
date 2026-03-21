@@ -972,13 +972,16 @@ namespace nrl {
 
       char movbuf3[40];
       if (s.multi) {
-        // We concatenate the selections in the buffer and separate them "\N{NO-BREAK SPACE}&\N{NO-BREAK SPACE}"
-        for (size_t i = 0; i < s.select_options.size(); ++i)
-          if (s.selected.contains(i)) {
-            if (! s.buffer.empty())
-              s.buffer.append_range(std::string_view{s.select_sep});
-            s.buffer.append_range(s.select_options[i]);
-          }
+        if (s.buffer.empty() && s.selected.empty() && s.select_idx > 0)
+          s.buffer.append_range(s.select_options[s.select_idx]);
+        else
+          // We concatenate the selections in the buffer and separate them "\N{NO-BREAK SPACE}&\N{NO-BREAK SPACE}"
+          for (size_t i = 0; i < s.select_options.size(); ++i)
+            if (s.selected.contains(i)) {
+              if (! s.buffer.empty())
+                s.buffer.append_range(std::string_view{s.select_sep});
+              s.buffer.append_range(s.select_options[i]);
+            }
         if (! s.colsel.empty())
           ::write(s.fd, s.colsel.data(), s.colsel.size());
         redisplay(s);
