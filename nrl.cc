@@ -309,13 +309,22 @@ namespace nrl {
         s.initial_row -= nscrolled;
       }
 
+      auto line_end_str = [&s](size_t i) {
+        if (s.multi) {
+          if (s.selected.contains(i))
+            return "\N{BOX DRAWINGS LIGHT HORIZONTAL}\N{BLACK RIGHT-POINTING TRIANGLE}";
+          return "\N{BOX DRAWINGS LIGHT TRIPLE DASH HORIZONTAL} ";
+        } else
+          return "\N{BOX DRAWINGS LIGHT HORIZONTAL} ";
+      };
+
       move_to_str(outs, s, s.prompt_len, 1);
       if ((s.fl & handle::flags::frame) != handle::flags::none)
         outs.append("\e[0m");
       outs.append("\N{BOX DRAWINGS LIGHT VERTICAL}\e[0m");
       for (size_t i = 1; i + 1 < s.select_options.size(); ++i) {
         move_to_str(outs, s, s.prompt_len, 1 + i);
-        outs.append(std::format("\e[2K\N{BOX DRAWINGS LIGHT VERTICAL AND RIGHT}\N{BOX DRAWINGS LIGHT HORIZONTAL}{}", s.multi && s.selected.contains(i) ? "\N{BLACK RIGHT-POINTING TRIANGLE}" : " "));
+        outs.append(std::format("\e[2K\N{BOX DRAWINGS LIGHT VERTICAL AND RIGHT}{}", line_end_str(i)));
         if (s.select_idx == i)
           outs.append("\e[7m");
         outs.append(s.select_options[i]);
@@ -323,7 +332,7 @@ namespace nrl {
           outs.append("\e[27m");
       }
       move_to_str(outs, s, s.prompt_len, s.select_options.size());
-      outs.append(std::format("\e[2K\N{BOX DRAWINGS LIGHT UP AND RIGHT}\N{BOX DRAWINGS LIGHT HORIZONTAL}{}", s.multi && s.selected.contains(s.select_options.size() - 1) ? "\N{BLACK RIGHT-POINTING TRIANGLE}" : " "));
+      outs.append(std::format("\e[2K\N{BOX DRAWINGS LIGHT UP AND RIGHT}{}", line_end_str(s.select_options.size() - 1)));
       if (s.select_idx + 1 == s.select_options.size())
         outs.append("\e[7m");
       outs.append(s.select_options.back());
