@@ -1,9 +1,4 @@
 #include "nrl.hh"
-#include <cstddef>
-#include <filesystem>
-#include <iterator>
-#include <system_error>
-#include <vector>
 
 #if defined __cpp_modules && __cpp_modules >= 201810L
 import std;
@@ -14,16 +9,19 @@ import std;
 # include <cerrno>
 # include <compare>
 # include <csignal> // IWYU pragma: keep
+# include <cstddef>
 # include <cstdint>
 # include <cstdlib>
 # include <cstring>
+# include <filesystem>
 # include <format>
 # include <map>
+# include <string_view>
+# include <vector>
 #endif
 
 #include <error.h>
 #include <fcntl.h>
-#include <string_view>
 #include <unistd.h>
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
@@ -499,15 +497,23 @@ namespace nrl {
         char movbuf[40];
         size_t nmovbuf = move_to_buf(movbuf, sizeof(movbuf), s, s.pos_x, s.pos_y);
         // clang-format off
-        std::array<iovec, 3> iov
+        std::array<iovec, 5> iov
         {
           { {s.buffer.data() + s.offset, s.buffer.size() - s.offset},
             {const_cast<char*>(" "), 1},
-            {movbuf, nmovbuf}
           }
         };
         // clang-format on
-        ::writev(s.fd, iov.data(), iov.size());
+        size_t niov = 2;
+        if (s.line_offset.size() < s.max_lines) {
+          assert(s.line_offset.size() + 1 == s.max_lines);
+          iov[niov++] = {const_cast<char*>("\n\e[m\e[M"), 7};
+          s.max_lines -= 1;
+          if (! s.colsel.empty())
+            iov[niov++] = {s.colsel.data(), s.colsel.size()};
+        }
+        iov[niov++] = {movbuf, nmovbuf};
+        ::writev(s.fd, iov.data(), niov);
         s.requested_pos_x = s.pos_x;
       }
       return false;
@@ -526,15 +532,23 @@ namespace nrl {
         char movbuf[40];
         size_t nmovbuf = move_to_buf(movbuf, sizeof(movbuf), s, s.pos_x, s.pos_y);
         // clang-format off
-        std::array<iovec, 3> iov
+        std::array<iovec, 5> iov
         {
           { {s.buffer.data() + s.offset, s.buffer.size() - s.offset},
             {const_cast<char*>(" "), 1},
-            {movbuf, nmovbuf}
           }
         };
         // clang-format on
-        ::writev(s.fd, iov.data(), iov.size());
+        size_t niov = 2;
+        if (s.line_offset.size() < s.max_lines) {
+          assert(s.line_offset.size() + 1 == s.max_lines);
+          iov[niov++] = {const_cast<char*>("\n\e[m\e[M"), 7};
+          s.max_lines -= 1;
+          if (! s.colsel.empty())
+            iov[niov++] = {s.colsel.data(), s.colsel.size()};
+        }
+        iov[niov++] = {movbuf, nmovbuf};
+        ::writev(s.fd, iov.data(), niov);
         s.requested_pos_x = s.pos_x;
       }
       return false;
@@ -611,24 +625,32 @@ namespace nrl {
 
     void redisplay(handle& s)
     {
-      auto old_nlines = s.line_offset.size();
+      [[maybe_unused]] auto old_nlines = s.line_offset.size();
       s.pos_x = s.prompt_len;
       s.pos_y = 0;
       recompute_line_offset(s, 0);
       // clang-format off
       char movbuf[40];
       size_t nmovbuf = move_to_buf(movbuf, sizeof(movbuf), s, s.pos_x, s.pos_y);
-      std::vector<iovec> iov
+      std::array<iovec, 6> iov
       {
-        {movbuf, nmovbuf},
+        {{movbuf, nmovbuf},
         {s.buffer.data(), s.buffer.size()},
-        {const_cast<char*>("\e[K"), 3},
+        {const_cast<char*>("\e[K"), 3}},
       };
       // clang-format on
-      while (old_nlines-- > s.line_offset.size())
-        iov.emplace_back(const_cast<char*>("\n\e[K"), 4);
-      iov.emplace_back(movbuf, nmovbuf);
-      ::writev(s.fd, iov.data(), iov.size());
+      size_t niov = 3;
+      std::string clear;
+      if (s.max_lines > s.line_offset.size()) {
+        clear = std::format("\n\e[m\e[{}M", s.max_lines - s.line_offset.size());
+        iov[niov++] = {clear.data(), clear.size()};
+        if (! s.colsel.empty())
+          iov[niov++] = {s.colsel.data(), s.colsel.size()};
+        s.max_lines = s.line_offset.size();
+      } else
+        assert(old_nlines == s.line_offset.size());
+      iov[niov++] = {movbuf, nmovbuf};
+      ::writev(s.fd, iov.data(), niov);
     }
 
 
@@ -650,19 +672,23 @@ namespace nrl {
         auto old_nlines = s.line_offset.size();
         recompute_line_offset(s, s.pos_y);
         // clang-format off
-        std::vector<iovec> iov
+        std::array<iovec, 3> iov
         {
-          {const_cast<char*>("\e[K"), 3},
+          {{const_cast<char*>("\e[K"), 3},}
         };
         // clang-format on
-        if (old_nlines > s.line_offset.size()) {
-          while (old_nlines-- > s.line_offset.size())
-            iov.emplace_back(const_cast<char*>("\n\e[K"), 4);
+        size_t niov = 1;
+        std::string clear;
+        if (s.max_lines > s.line_offset.size()) {
+          clear = std::format("\n\e[m\e[{}M{}", s.max_lines - s.line_offset.size(), s.colsel);
+          iov[niov++] = {clear.data(), clear.size()};
           char movbuf[40];
           size_t nmovbuf = move_to_buf(movbuf, sizeof(movbuf), s, s.pos_x, s.pos_y);
-          iov.emplace_back(movbuf, nmovbuf);
-        }
-        ::writev(s.fd, iov.data(), iov.size());
+          iov[niov++] = {movbuf, nmovbuf};
+          s.max_lines = s.line_offset.size();
+        } else
+          assert(old_nlines == s.line_offset.size());
+        ::writev(s.fd, iov.data(), niov);
       }
       return false;
     }
