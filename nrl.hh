@@ -1,4 +1,3 @@
-#include <utility>
 #ifndef NRL_HH_
 # define NRL_HH_ 1
 
@@ -7,6 +6,7 @@
 # include <expected>
 # include <string>
 # include <string_view>
+# include <utility>
 # include <variant>
 # include <vector>
 
@@ -40,6 +40,7 @@ namespace nrl {
     void prepare();
     void prepare(const std::vector<std::string>& select, bool multi_ = false);
     std::expected<std::string_view, bool> process(::epoll_event& epev);
+    std::string abort();
 
     using string_callback = const char* (*) ();
 

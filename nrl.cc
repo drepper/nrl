@@ -1,4 +1,5 @@
 #include "nrl.hh"
+#include <iterator>
 
 #if defined __cpp_modules && __cpp_modules >= 201810L
 import std;
@@ -319,10 +320,10 @@ namespace nrl {
       move_to_str(outs, s, s.prompt_len, 1);
       if ((s.fl & handle::flags::frame) != handle::flags::none)
         outs.append("\e[0m");
-      outs.append("\N{BOX DRAWINGS LIGHT VERTICAL}\e[0m");
+      outs.append("\N{BOX DRAWINGS LIGHT VERTICAL}\e[0m\n");
       for (size_t i = 1; i + 1 < s.select_options.size(); ++i) {
         move_to_str(outs, s, s.prompt_len, 1 + i);
-        outs.append(std::format("\e[2K\N{BOX DRAWINGS LIGHT VERTICAL AND RIGHT}{}", line_end_str(i)));
+        std::format_to(std::back_inserter(outs), "\N{BOX DRAWINGS LIGHT VERTICAL AND RIGHT}{}", line_end_str(i));
         if (s.select_idx == i)
           outs.append("\e[7m");
         outs.append(s.select_options[i]);
@@ -330,7 +331,7 @@ namespace nrl {
           outs.append("\e[27m");
       }
       move_to_str(outs, s, s.prompt_len, s.select_options.size());
-      outs.append(std::format("\e[2K\N{BOX DRAWINGS LIGHT UP AND RIGHT}{}", line_end_str(s.select_options.size() - 1)));
+      std::format_to(std::back_inserter(outs), "\N{BOX DRAWINGS LIGHT UP AND RIGHT}{}", line_end_str(s.select_options.size() - 1));
       if (s.select_idx + 1 == s.select_options.size())
         outs.append("\e[7m");
       outs.append(s.select_options.back());
@@ -1030,10 +1031,8 @@ namespace nrl {
       std::string clearbuf;
       if (s.select_options.size() > 1) {
         move_to_str(clearbuf, s, 0, s.max_lines + 1);
-        for (size_t i = 2; i < s.select_options.size(); ++i)
-          clearbuf.append("\e[2K\n");
-        // Clear last line and turn cursor back on.
-        clearbuf.append("\e[2K\e[?25h");
+        // Delete menu lines and turn cursor back on.
+        std::format_to(std::back_inserter(clearbuf), "\e[{}M\e[?25h", s.select_options.size() - 1);
         iov[niov++] = {clearbuf.data(), clearbuf.size()};
       }
 
@@ -1239,6 +1238,10 @@ namespace nrl {
       if (select_options.size() > 1) {
         if (select_options.front().empty())
           select_idx = 1zu;
+
+        auto insert_lines = std::format("\e[{}B\e[m\e[{}L", 1 + cur_frame_lines, select_options.size() - cur_frame_lines);
+        ::write(fd, insert_lines.data(), insert_lines.size());
+
         show_options(*this);
       }
     }
@@ -1270,6 +1273,12 @@ namespace nrl {
     finalize(*this);
 
     return std::string_view(reinterpret_cast<char*>(buffer.data()), buffer.size());
+  }
+
+
+  std::string handle::abort()
+  {
+    return "";
   }
 
 } // namespace nrl

@@ -11,7 +11,7 @@
 #include <sys/epoll.h>
 
 
-int main(int argc, [[maybe_unused]] char* argv[])
+int main(int argc, char* argv[])
 {
   std::locale loc = std::locale("C.utf8");
   std::locale::global(loc);
