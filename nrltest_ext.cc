@@ -16,8 +16,6 @@ int main(int argc, char* argv[])
   std::locale loc = std::locale("C.utf8");
   std::locale::global(loc);
 
-  sleep(5);
-
   int epfd = ::epoll_create1(EPOLL_CLOEXEC);
   if (epfd == -1) [[unlikely]]
     ::error(EXIT_FAILURE, errno, "cannot open epoll");
