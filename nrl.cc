@@ -301,13 +301,6 @@ namespace nrl {
 
     void show_options(handle& s)
     {
-      std::string outs;
-      if (s.initial_row + s.select_options.size() > s.term_rows) {
-        auto nscrolled = s.initial_row + s.select_options.size() - s.term_rows;
-        outs = std::format("\e[{}S", nscrolled);
-        s.initial_row -= nscrolled;
-      }
-
       auto line_end_str = [&s](size_t i) {
         if (s.multi) {
           if (s.selected.contains(i))
@@ -317,6 +310,7 @@ namespace nrl {
           return "\N{BOX DRAWINGS LIGHT HORIZONTAL} ";
       };
 
+      std::string outs;
       move_to_str(outs, s, s.prompt_len, 1);
       if ((s.fl & handle::flags::frame) != handle::flags::none)
         outs.append("\e[0m");
@@ -1161,7 +1155,7 @@ namespace nrl {
         std::string frame;
 
         if (frame_highlight_fg != info->default_foreground)
-          std::format_to(std::back_inserter(frame), "\e[38;2;{};{};{}m", frame_highlight_fg.r, frame_highlight_fg.g, frame_highlight_fg.b);
+          frame = std::format("\e[38;2;{};{};{}m", frame_highlight_fg.r, frame_highlight_fg.g, frame_highlight_fg.b);
         auto f = (fl & handle::flags::frame) == handle::flags::frame_line ? "─" : "\N{LOWER HALF BLOCK}";
         for (size_t i = 0; i < term_cols; ++i)
           frame.append(f);
@@ -1239,8 +1233,15 @@ namespace nrl {
         if (select_options.front().empty())
           select_idx = 1zu;
 
-        auto insert_lines = std::format("\e[{}B\e[m\e[{}L", 1 + cur_frame_lines, select_options.size() - cur_frame_lines);
-        ::write(fd, insert_lines.data(), insert_lines.size());
+        std::string outs = "\e[m";
+        if (initial_row + select_options.size() > term_rows) {
+          auto nscrolled = initial_row + select_options.size() - term_rows;
+          std::format_to(std::back_inserter(outs), "\e[{}S", nscrolled);
+          initial_row -= nscrolled;
+        }
+
+        std::format_to(std::back_insert_iterator(outs), "\e[{}B\e[{}L", 1 + cur_frame_lines, select_options.size() - cur_frame_lines);
+        ::write(fd, outs.data(), outs.size());
 
         show_options(*this);
       }
