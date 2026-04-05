@@ -487,7 +487,6 @@ namespace nrl {
         (void) cb_backward_char(s);
         assert(s.offset != old_offset);
         s.buffer.erase(s.buffer.begin() + s.offset, s.buffer.begin() + old_offset);
-        s.nchars -= 1;
         recompute_line_offset(s, s.pos_y);
         char movbuf[40];
         size_t nmovbuf = move_to_buf(movbuf, sizeof(movbuf), s, s.pos_x, s.pos_y);
@@ -522,7 +521,6 @@ namespace nrl {
         auto n = ::u8_mbtoucr(&_, s.buffer.data() + s.offset, s.buffer.size() - s.offset);
         assert(n > 0);
         s.buffer.erase(s.buffer.begin() + s.offset, s.buffer.begin() + s.offset + n);
-        s.nchars -= 1;
         recompute_line_offset(s, s.pos_y);
         char movbuf[40];
         size_t nmovbuf = move_to_buf(movbuf, sizeof(movbuf), s, s.pos_x, s.pos_y);
@@ -764,7 +762,6 @@ namespace nrl {
 
           if (s.insert || s.offset == s.buffer.size()) {
             s.buffer.insert(s.buffer.begin() + s.offset, buf, buf + l);
-            s.nchars += 1;
 
             if (s.multiline) {
               // Recompute the affected line starts.
@@ -1181,7 +1178,6 @@ namespace nrl {
       assert(initial_col == 1);
 
       offset = 0u;
-      nchars = 0u;
       pos_x = 0u;
       pos_y = 0u;
       line_offset = {0u};

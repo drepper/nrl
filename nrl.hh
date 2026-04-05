@@ -100,7 +100,6 @@ namespace nrl {
     unsigned initial_col = 0;
     unsigned initial_row = 0;
     unsigned offset = 0;
-    unsigned nchars = 0;
     unsigned pos_x = 0;
     unsigned requested_pos_x = 0;
     unsigned pos_y = 0;
