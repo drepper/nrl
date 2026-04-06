@@ -40,7 +40,7 @@ namespace nrl {
     void prepare();
     void prepare(const std::vector<std::string>& select, bool multi_ = false);
     std::expected<std::string_view, bool> process(::epoll_event& epev);
-    std::string abort();
+    void redraw();
 
     using string_callback = const char* (*) ();
 
@@ -104,6 +104,7 @@ namespace nrl {
     unsigned requested_pos_x = 0;
     unsigned pos_y = 0;
     unsigned first = 0; // When not multiline, offset of the first character shown.
+    std::string prompt_str{};
     unsigned prompt_len = 0;
 
     friend std::string_view read(handle&);

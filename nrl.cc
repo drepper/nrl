@@ -689,6 +689,9 @@ namespace nrl {
 
     void show_empty_message(handle& s, std::string& msg)
     {
+      if (msg.empty())
+        return;
+
       auto colon = std::format("\e[38;2;{};{};{}m", s.empty_message_fg.r, s.empty_message_fg.g, s.empty_message_fg.b);
       std::string coloff;
       if (s.text_default_fg != terminal::info::color{})
@@ -853,11 +856,9 @@ namespace nrl {
         if (auto cb = key_map.find({true, key.modifiers & (::TERMKEY_KEYMOD_ALT | ::TERMKEY_KEYMOD_SHIFT | ::TERMKEY_KEYMOD_CTRL), key.code.sym}); cb != key_map.end()) {
           auto res = cb->second(s);
 
-          if (! was_empty && s.buffer.empty()) [[unlikely]] {
-            auto& msg = s.get_empty_message();
-            if (! msg.empty())
-              show_empty_message(s, msg);
-          }
+          if (! was_empty && s.buffer.empty()) [[unlikely]]
+            show_empty_message(s, s.get_empty_message());
+
           return res;
         }
       }
@@ -1141,55 +1142,10 @@ namespace nrl {
         text_default_bg = bg;
       }
 
-      // Move to the next line beginning.
-      if (osc133)
-        ::write(fd, osc133_L, strlen(osc133_L));
-      else
-        ::write(fd, "\r", 1);
-
       colsel.clear();
-      if ((fl & handle::flags::frame) != handle::flags::none) {
-        std::string frame;
+      if (text_default_fg != terminal::info::color{})
+        colsel = std::format("\e[38;2;{};{};{};48;2;{};{};{}m", text_default_fg.r, text_default_fg.g, text_default_fg.b, text_default_bg.r, text_default_bg.g, text_default_bg.b);
 
-        if (frame_highlight_fg != info->default_foreground)
-          frame = std::format("\e[38;2;{};{};{}m", frame_highlight_fg.r, frame_highlight_fg.g, frame_highlight_fg.b);
-        auto f = (fl & handle::flags::frame) == handle::flags::frame_line ? "─" : "\N{LOWER HALF BLOCK}";
-        for (size_t i = 0; i < term_cols; ++i)
-          frame.append(f);
-        frame.append("\n\n");
-        f = (fl & handle::flags::frame) == handle::flags::frame_line ? "─" : "\N{UPPER HALF BLOCK}";
-        for (size_t i = 0; i < term_cols; ++i)
-          frame.append(f);
-        if (frame_highlight_fg != info->default_foreground)
-          frame.append("\e[0m");
-        frame.append("\e[1F");
-        ::write(fd, frame.data(), frame.size());
-        cur_frame_lines = 1;
-
-        if (text_default_fg != terminal::info::color{}) {
-          colsel = std::format("\e[38;2;{};{};{};48;2;{};{};{}m", text_default_fg.r, text_default_fg.g, text_default_fg.b, text_default_bg.r, text_default_bg.g, text_default_bg.b);
-          ::write(fd, colsel.data(), colsel.size());
-        }
-      } else
-        cur_frame_lines = 0;
-
-      // Get current position.
-      std::tie(initial_col, initial_row) = get_current_pos(tkfd);
-      assert(initial_col == 1);
-
-      offset = 0u;
-      pos_x = 0u;
-      pos_y = 0u;
-      line_offset = {0u};
-
-      prompt_len = 0u;
-
-      select_idx = 0zu;
-
-      // For interactive use.
-      assert(buffer.empty());
-
-      std::string prompt_str;
       if (std::holds_alternative<std::string>(prompt))
         prompt_str = std::get<std::string>(prompt);
       else
@@ -1197,19 +1153,22 @@ namespace nrl {
 
       prompt_len = nonescape_len(prompt_str);
 
-      if (! prompt_str.empty()) {
-        if (osc133)
-          ::write(fd, osc133_A, strlen(osc133_A));
-        std::string clean_prompt = colsel.empty() ? prompt_str : cleanup_CSI0m(prompt_str, colsel);
-        ::write(fd, clean_prompt.data(), clean_prompt.size());
-      }
-      if (osc133)
-        ::write(fd, osc133_B, strlen(osc133_B));
-
+      offset = 0u;
       pos_x = prompt_len;
+      pos_y = 0u;
+      line_offset = {0u};
 
-      // Clear to end of line.  This also fills in the background color, if needed.
-      ::write(fd, "\e[K", 3);
+      select_idx = select_options.size() > 1 && select_options.front().empty() ? 1zu : 0zu;
+
+      // For interactive use.
+      assert(buffer.empty());
+
+      cur_frame_lines = (fl & handle::flags::frame) != handle::flags::none ? 1 : 0;
+
+      // Get current position.
+      std::tie(initial_col, initial_row) = get_current_pos(tkfd);
+      initial_row += cur_frame_lines;
+      initial_col = 1;
 
       auto& msg = get_empty_message();
       if (! msg.empty()) {
@@ -1221,26 +1180,19 @@ namespace nrl {
         else
           std::tie(fg, bg) = adjust_rgb(text_default_fg, text_default_bg, 48);
         empty_message_fg = bg;
-
-        show_empty_message(*this, msg);
       }
 
-      if (select_options.size() > 1) {
-        if (select_options.front().empty())
-          select_idx = 1zu;
-
+      if (initial_row + std::max(1zu, select_options.size()) - 1 + cur_frame_lines > term_rows) {
         std::string outs = "\e[m";
-        if (initial_row + select_options.size() > term_rows) {
-          auto nscrolled = initial_row + select_options.size() - term_rows;
-          std::format_to(std::back_inserter(outs), "\e[{}S", nscrolled);
-          initial_row -= nscrolled;
-        }
+        auto nscrolled = initial_row + std::max(1zu, select_options.size()) - 1 + cur_frame_lines - term_rows;
+        std::format_to(std::back_inserter(outs), "\e[{}S", nscrolled);
+        initial_row -= nscrolled;
 
         std::format_to(std::back_insert_iterator(outs), "\e[{}B\e[{}L", 1 + cur_frame_lines, select_options.size() - cur_frame_lines);
         ::write(fd, outs.data(), outs.size());
-
-        show_options(*this);
       }
+
+      redraw();
     }
   }
 
@@ -1273,9 +1225,51 @@ namespace nrl {
   }
 
 
-  std::string handle::abort()
+  void handle::redraw()
   {
-    return "";
+    move_to(*this, 0, -cur_frame_lines);
+
+    // Mark new prompt.
+    if (osc133)
+      ::write(fd, osc133_L, strlen(osc133_L));
+
+    if ((fl & handle::flags::frame) != handle::flags::none) {
+      std::string frame;
+
+      if (frame_highlight_fg != info->default_foreground)
+        frame = std::format("\e[38;2;{};{};{}m", frame_highlight_fg.r, frame_highlight_fg.g, frame_highlight_fg.b);
+      auto f = (fl & handle::flags::frame) == handle::flags::frame_line ? "─" : "\N{LOWER HALF BLOCK}";
+      for (size_t i = 0; i < term_cols; ++i)
+        frame.append(f);
+      frame.append("\n\n");
+      f = (fl & handle::flags::frame) == handle::flags::frame_line ? "─" : "\N{UPPER HALF BLOCK}";
+      for (size_t i = 0; i < term_cols; ++i)
+        frame.append(f);
+      if (frame_highlight_fg != info->default_foreground)
+        frame.append("\e[0m");
+      frame.append("\e[1F");
+
+      if (! colsel.empty())
+        frame.append(colsel);
+
+      ::write(fd, frame.data(), frame.size());
+    }
+
+    if (! prompt_str.empty()) {
+      if (osc133)
+        ::write(fd, osc133_A, strlen(osc133_A));
+      std::string clean_prompt = colsel.empty() ? prompt_str : cleanup_CSI0m(prompt_str, colsel);
+      ::write(fd, clean_prompt.data(), clean_prompt.size());
+    }
+    if (osc133)
+      ::write(fd, osc133_B, strlen(osc133_B));
+
+    // Clear to end of line.  This also fills in the background color, if needed.
+    ::write(fd, "\e[K", 3);
+    show_empty_message(*this, get_empty_message());
+
+    if (select_options.size() > 1)
+      show_options(*this);
   }
 
 } // namespace nrl
