@@ -76,8 +76,4 @@ add_executable(nrltest nrltest.cc config.hh)
 target_include_directories(nrltest PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(nrltest PUBLIC nrl termdetect unistring)
 
-add_executable(nrltest_ext nrltest_ext.cc config.hh)
-target_include_directories(nrltest_ext PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
-target_link_libraries(nrltest_ext PUBLIC nrl termdetect unistring)
-
 add_subdirectory(termdetect)

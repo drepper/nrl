@@ -940,24 +940,30 @@ namespace nrl {
     }
 
 
-    void cleanup_epoll(handle& s)
+    void cleanup_fds(handle& s)
     {
-      assert(s.term_state == state::open);
+      if (s.term_state == state::open) {
+        if (! sigismember(&s.old_mask, SIGWINCH)) {
+          sigset_t mask;
+          sigemptyset(&mask);
+          sigaddset(&mask, SIGWINCH);
+          if (::sigprocmask(SIG_BLOCK, &mask, nullptr) != 0) [[unlikely]]
+            // This really should never happen.
+            ::error(EXIT_FAILURE, errno, "sigprocmask failed ?!");
+        }
 
-      if (! sigismember(&s.old_mask, SIGWINCH)) {
-        sigset_t mask;
-        sigemptyset(&mask);
-        sigaddset(&mask, SIGWINCH);
-        if (::sigprocmask(SIG_BLOCK, &mask, nullptr) != 0) [[unlikely]]
-          // This really should never happen.
-          ::error(EXIT_FAILURE, errno, "sigprocmask failed ?!");
+        // Ignore errors.  Maybe someone else cleared all descriptors?
+        (void) ::epoll_ctl(s.epfd, EPOLL_CTL_DEL, s.tkfd, nullptr);
+        (void) ::epoll_ctl(s.epfd, EPOLL_CTL_DEL, s.sigfd, nullptr);
+
+        ::close(s.sigfd);
+        if (! s.extern_epfd)
+          ::close(s.epfd);
+        ::sigprocmask(SIG_SETMASK, &s.old_mask, nullptr);
+        ::termkey_destroy(s.tk);
+
+        s.term_state = state::closed;
       }
-
-      // Ignore errors.  Maybe someone else cleared all descriptors?
-      (void) ::epoll_ctl(s.epfd, EPOLL_CTL_DEL, s.tkfd, nullptr);
-      (void) ::epoll_ctl(s.epfd, EPOLL_CTL_DEL, s.sigfd, nullptr);
-
-      s.term_state = state::closed;
     }
 
 
@@ -1038,7 +1044,7 @@ namespace nrl {
 
       ::writev(s.fd, iov.data(), niov);
 
-      cleanup_epoll(s);
+      cleanup_fds(s);
 
       s.select_options.clear();
     }
@@ -1088,14 +1094,7 @@ namespace nrl {
 
   handle::~handle()
   {
-    if (term_state == state::open)
-      cleanup_epoll(*this);
-
-    ::close(sigfd);
-    if (! extern_epfd)
-      ::close(epfd);
-    ::sigprocmask(SIG_SETMASK, &old_mask, nullptr);
-    ::termkey_destroy(tk);
+    cleanup_fds(*this);
   }
 
 
@@ -1192,6 +1191,8 @@ namespace nrl {
         ::write(fd, outs.data(), outs.size());
       }
 
+      move_to(*this, 0, -cur_frame_lines);
+
       redraw();
     }
   }
@@ -1219,6 +1220,8 @@ namespace nrl {
     if (! done)
       return std::unexpected(handled);
 
+    cleanup_fds(*this);
+
     finalize(*this);
 
     return std::string_view(reinterpret_cast<char*>(buffer.data()), buffer.size());
@@ -1227,8 +1230,6 @@ namespace nrl {
 
   void handle::redraw()
   {
-    move_to(*this, 0, -cur_frame_lines);
-
     // Mark new prompt.
     if (osc133)
       ::write(fd, osc133_L, strlen(osc133_L));
@@ -1237,7 +1238,7 @@ namespace nrl {
       std::string frame;
 
       if (frame_highlight_fg != info->default_foreground)
-        frame = std::format("\e[38;2;{};{};{}m", frame_highlight_fg.r, frame_highlight_fg.g, frame_highlight_fg.b);
+        frame = std::format("\e[m\e[38;2;{};{};{}m", frame_highlight_fg.r, frame_highlight_fg.g, frame_highlight_fg.b);
       auto f = (fl & handle::flags::frame) == handle::flags::frame_line ? "─" : "\N{LOWER HALF BLOCK}";
       for (size_t i = 0; i < term_cols; ++i)
         frame.append(f);
@@ -1266,10 +1267,18 @@ namespace nrl {
 
     // Clear to end of line.  This also fills in the background color, if needed.
     ::write(fd, "\e[K", 3);
-    show_empty_message(*this, get_empty_message());
 
-    if (select_options.size() > 1)
-      show_options(*this);
+    if (buffer.empty()) {
+      show_empty_message(*this, get_empty_message());
+
+      if (select_options.size() > 1)
+        show_options(*this);
+    } else {
+      ::write(fd, buffer.data(), buffer.size());
+      ::write(fd, "\e[m", 3);
+
+      assert(select_options.empty());
+    }
   }
 
 } // namespace nrl
