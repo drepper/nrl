@@ -3,7 +3,7 @@
 #include <array>
 #include <cassert>
 #include <cerrno>
-#include <csignal>
+#include <csignal> // IWYU pragma: keep
 #include <cstdlib>
 #include <locale>
 #include <print>
@@ -72,14 +72,19 @@ int main(int argc, char* argv[])
         while (::read(sfd, &ssi, sizeof(ssi)) > 0) {
           // Ignore the data.
         }
-        ::write(1, "\e[m\e[0J", 7);
+        ::write(STDOUT_FILENO, "\e[m\e[0J", 7);
         ::sleep(2);
         ps->redraw();
       } else {
         auto res = ps->process(epev[0]);
         if (res) {
-          ::write(1, "\e[10A\e[10L", 10);
+          auto pos = terminal::info::get_cursor_pos(STDOUT_FILENO);
+          ::write(STDOUT_FILENO, "\e[10A\e[10L", 10);
           ps->redraw();
+          if (pos) {
+            auto spos = std::format("\e[{};{}H", std::get<0>(*pos), std::get<1>(*pos));
+            ::write(STDOUT_FILENO, spos.data(), spos.size());
+          }
 
           if (res->empty())
             break;
