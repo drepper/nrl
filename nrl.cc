@@ -1216,6 +1216,10 @@ namespace nrl {
 
   std::expected<std::string_view, bool> handle::process(::epoll_event& epev)
   {
+    // If widget is archived, don't process events
+    if (term_state == state::archived) [[unlikely]]
+      return std::unexpected(false);
+
     auto [handled, done] = handle_one(*this, epev);
     if (! done)
       return std::unexpected(handled);
@@ -1279,6 +1283,19 @@ namespace nrl {
 
       assert(select_options.empty());
     }
+  }
+
+
+  void handle::done()
+  {
+    if (term_state == state::archived)
+      return;
+
+    // Clean up file descriptors and epoll registrations
+    cleanup_fds(*this);
+
+    // Mark as archived instead of closed
+    term_state = state::archived;
   }
 
 } // namespace nrl

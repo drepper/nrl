@@ -19,7 +19,7 @@
 
 namespace nrl {
 
-  enum struct state { invalid, open, closed };
+  enum struct state { invalid, open, closed, archived };
 
   struct handle {
     enum struct flags {
@@ -41,6 +41,9 @@ namespace nrl {
     void prepare(const std::vector<std::string>& select, bool multi_ = false);
     std::expected<std::string_view, bool> process(::epoll_event& epev);
     void redraw();
+
+    /// Transition widget to read-only state and release resources
+    void done();
 
     using string_callback = const char* (*) ();
 
