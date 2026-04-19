@@ -42,8 +42,7 @@ namespace nrl {
     std::expected<std::string_view, bool> process(::epoll_event& epev);
     void redraw();
 
-    /// Transition widget to read-only state and release resources
-    void done();
+    bool active_p() const { return term_state == state::closed || term_state == state::open; }
 
     using string_callback = const char* (*) ();
 

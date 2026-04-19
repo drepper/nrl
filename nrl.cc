@@ -1047,6 +1047,9 @@ namespace nrl {
       cleanup_fds(s);
 
       s.select_options.clear();
+
+      // Mark as archived instead of closed
+      s.term_state = state::archived;
     }
 
 
@@ -1283,19 +1286,6 @@ namespace nrl {
 
       assert(select_options.empty());
     }
-  }
-
-
-  void handle::done()
-  {
-    if (term_state == state::archived)
-      return;
-
-    // Clean up file descriptors and epoll registrations
-    cleanup_fds(*this);
-
-    // Mark as archived instead of closed
-    term_state = state::archived;
   }
 
 } // namespace nrl
