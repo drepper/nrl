@@ -1,5 +1,4 @@
 #include "nrl.hh"
-#include <iterator>
 
 #if defined __cpp_modules && __cpp_modules >= 201810L
 import std;
@@ -1079,7 +1078,8 @@ namespace nrl {
   } // anonymous namespace
 
 
-  handle::handle(int fd_, flags fl_) : fd(fd_), fl(fl_), info(terminal::info::alloc(fd)), frame_highlight_fg(info->default_foreground), tk(::termkey_new(fd, 0)), tkfd(::termkey_get_fd(tk)), epfd(::epoll_create1(EPOLL_CLOEXEC)), extern_epfd(false)
+  handle::handle(int fd_, flags fl_, std::shared_ptr<terminal::info> info_)
+      : fd(fd_), fl(fl_), info(info_ ? std::move(info_) : terminal::info::alloc(fd)), frame_highlight_fg(info->default_foreground), tk(::termkey_new(fd, 0)), tkfd(::termkey_get_fd(tk)), epfd(::epoll_create1(EPOLL_CLOEXEC)), extern_epfd(false)
   {
     if (epfd == -1) [[unlikely]]
       // This really should never happen.
@@ -1089,7 +1089,7 @@ namespace nrl {
   }
 
 
-  handle::handle(int epfd_, int fd_, flags fl_) : fd(fd_), fl(fl_), info(terminal::info::alloc(fd)), frame_highlight_fg(info->default_foreground), tk(::termkey_new(fd, 0)), tkfd(::termkey_get_fd(tk)), epfd(epfd_), extern_epfd(true)
+  handle::handle(int epfd_, int fd_, flags fl_, std::shared_ptr<terminal::info> info_) : fd(fd_), fl(fl_), info(info_ ? std::move(info_) : terminal::info::alloc(fd)), frame_highlight_fg(info->default_foreground), tk(::termkey_new(fd, 0)), tkfd(::termkey_get_fd(tk)), epfd(epfd_), extern_epfd(true)
   {
     init_state(*this);
   }

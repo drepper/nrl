@@ -1,3 +1,4 @@
+#include <memory>
 #ifndef NRL_HH_
 # define NRL_HH_ 1
 
@@ -29,8 +30,8 @@ namespace nrl {
       frame = 3,
     };
 
-    handle(int fd_, flags fl_ = flags::none);
-    handle(int epfd_, int fd_, flags fl_ = flags::none);
+    handle(int fd_, flags fl_ = flags::none, std::shared_ptr<terminal::info> info_ = {});
+    handle(int epfd_, int fd_, flags fl_ = flags::none, std::shared_ptr<terminal::info> info_ = {});
     handle(const handle&) = delete;
     handle& operator=(const handle&) = delete;
     ~handle();

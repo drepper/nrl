@@ -82,7 +82,7 @@ int main(int argc, char* argv[])
           ::write(STDOUT_FILENO, "\e[10A\e[10L", 10);
           ps->redraw();
           if (pos) {
-            auto spos = std::format("\e[{};{}H", std::get<0>(*pos), std::get<1>(*pos));
+            auto spos = std::format("\e[{};{}H", std::get<1>(*pos), std::get<0>(*pos));
             ::write(STDOUT_FILENO, spos.data(), spos.size());
           }
 
