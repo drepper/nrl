@@ -1282,7 +1282,6 @@ namespace nrl {
         show_options(*this);
     } else {
       ::write(fd, buffer.data(), buffer.size());
-      ::write(fd, "\e[m", 3);
 
       assert(select_options.empty());
     }
