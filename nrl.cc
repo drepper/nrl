@@ -1078,8 +1078,28 @@ namespace nrl {
   } // anonymous namespace
 
 
+  unsigned handle::default_screen_manager::get_fixed_rows() const
+  {
+    return 0;
+  }
+
+
+  void handle::default_screen_manager::adjust_lines(int delta)
+  {
+    if (delta > 0) {
+      // Insert lines: CSI{n}L
+      std::string seq = std::format("\e[{}L", delta);
+      ::write(fd, seq.data(), seq.size());
+    } else if (delta < 0) {
+      // Delete lines: CSI{n}M
+      std::string seq = std::format("\e[{}M", -delta);
+      ::write(fd, seq.data(), seq.size());
+    }
+  }
+
+
   handle::handle(int fd_, flags fl_, std::shared_ptr<terminal::info> info_)
-      : fd(fd_), fl(fl_), info(info_ ? std::move(info_) : terminal::info::alloc(fd)), frame_highlight_fg(info->default_foreground), tk(::termkey_new(fd, 0)), tkfd(::termkey_get_fd(tk)), epfd(::epoll_create1(EPOLL_CLOEXEC)), extern_epfd(false)
+      : fd(fd_), fl(fl_), info(info_ ? std::move(info_) : terminal::info::alloc(fd)), frame_highlight_fg(info->default_foreground), tk(::termkey_new(fd, 0)), tkfd(::termkey_get_fd(tk)), epfd(::epoll_create1(EPOLL_CLOEXEC)), extern_epfd(false), default_scr_mgr(fd)
   {
     if (epfd == -1) [[unlikely]]
       // This really should never happen.
@@ -1089,7 +1109,8 @@ namespace nrl {
   }
 
 
-  handle::handle(int epfd_, int fd_, flags fl_, std::shared_ptr<terminal::info> info_) : fd(fd_), fl(fl_), info(info_ ? std::move(info_) : terminal::info::alloc(fd)), frame_highlight_fg(info->default_foreground), tk(::termkey_new(fd, 0)), tkfd(::termkey_get_fd(tk)), epfd(epfd_), extern_epfd(true)
+  handle::handle(int epfd_, int fd_, flags fl_, std::shared_ptr<terminal::info> info_)
+      : fd(fd_), fl(fl_), info(info_ ? std::move(info_) : terminal::info::alloc(fd)), frame_highlight_fg(info->default_foreground), tk(::termkey_new(fd, 0)), tkfd(::termkey_get_fd(tk)), epfd(epfd_), extern_epfd(true), default_scr_mgr(fd)
   {
     init_state(*this);
   }
@@ -1190,8 +1211,11 @@ namespace nrl {
         std::format_to(std::back_inserter(outs), "\e[{}S", nscrolled);
         initial_row -= nscrolled;
 
-        std::format_to(std::back_insert_iterator(outs), "\e[{}B\e[{}L", 1 + cur_frame_lines, select_options.size() - cur_frame_lines);
+        // std::format_to(std::back_insert_iterator(outs), "\e[{}B\e[{}L", 1 + cur_frame_lines, select_options.size() - cur_frame_lines);
+        std::format_to(std::back_insert_iterator(outs), "\e[{}B", 1 + cur_frame_lines);
         ::write(fd, outs.data(), outs.size());
+
+        scr_mgr->adjust_lines(select_options.size() - cur_frame_lines);
       }
 
       move_to(*this, 0, -cur_frame_lines);

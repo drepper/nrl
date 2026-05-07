@@ -23,6 +23,32 @@ namespace nrl {
   enum struct state { invalid, open, closed, archived };
 
   struct handle {
+    /// Screen management interface for handling scrolling and line preservation
+    struct screen_manager {
+      /// Get number of rows after textbox that must be preserved
+      /// @return Number of rows that should not be scrolled off screen
+      virtual unsigned get_fixed_rows() const = 0;
+
+      /// Insert or delete lines at current cursor position
+      /// @param delta Number of lines to insert (positive) or delete (negative)
+      virtual void adjust_lines(int delta) = 0;
+
+      virtual ~screen_manager() = default;
+    };
+
+    /// Default screen manager implementation
+    struct default_screen_manager final : screen_manager {
+      int fd;
+
+      explicit default_screen_manager(int fd_) : fd{fd_} {}
+
+      /// Returns 0 to match current behavior (no fixed rows)
+      unsigned get_fixed_rows() const override;
+
+      /// Insert or delete lines using CSI escape sequences
+      void adjust_lines(int delta) override;
+    };
+
     enum struct flags {
       none = 0,
       frame_line = 1,
@@ -70,6 +96,8 @@ namespace nrl {
 
     std::string& get_empty_message() { return select_options.empty() ? empty_message : select_options.front(); }
 
+    void set_screen_manager(screen_manager* mgr);
+
     int fd;
     flags fl;
     state term_state = state::invalid;
@@ -109,6 +137,9 @@ namespace nrl {
     unsigned first = 0; // When not multiline, offset of the first character shown.
     std::string prompt_str{};
     unsigned prompt_len = 0;
+
+    default_screen_manager default_scr_mgr;
+    screen_manager* scr_mgr = &default_scr_mgr;
 
     friend std::string_view read(handle&);
 
