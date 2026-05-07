@@ -1029,8 +1029,10 @@ namespace nrl {
       if (s.select_options.size() > 1) {
         move_to_str(clearbuf, s, 0, s.max_lines + 1);
         // Delete menu lines and turn cursor back on.
-        std::format_to(std::back_inserter(clearbuf), "\e[{}M\e[?25h", s.select_options.size() - 1);
-        iov[niov++] = {clearbuf.data(), clearbuf.size()};
+        // std::format_to(std::back_inserter(clearbuf), "\e[{}M\e[?25h", s.select_options.size() - 1);
+        // iov[niov++] = {clearbuf.data(), clearbuf.size()};
+        s.scr_mgr->adjust_lines(-(s.select_options.size() - 1));
+        iov[niov++] = {const_cast<char*>("\e[?25h"), 6};
       }
 
       char movbuf4[40];
