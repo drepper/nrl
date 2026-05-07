@@ -1227,6 +1227,12 @@ namespace nrl {
   }
 
 
+  void handle::set_screen_manager(screen_manager* mgr)
+  {
+    scr_mgr = mgr;
+  }
+
+
   void handle::prepare()
   {
     select_options.clear();
