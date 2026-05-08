@@ -1210,7 +1210,7 @@ namespace nrl {
       if (initial_row + std::max(1zu, select_options.size()) - 1 + cur_frame_lines > term_rows) {
         std::string outs = "\e[m";
         auto nscrolled = initial_row + std::max(1zu, select_options.size()) - 1 + cur_frame_lines - term_rows;
-        std::format_to(std::back_inserter(outs), "\e[{}S", nscrolled);
+        // std::format_to(std::back_inserter(outs), "\e[{}S", nscrolled);
         initial_row -= nscrolled;
 
         // std::format_to(std::back_insert_iterator(outs), "\e[{}B\e[{}L", 1 + cur_frame_lines, select_options.size() - cur_frame_lines);
