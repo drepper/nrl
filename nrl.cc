@@ -1207,9 +1207,10 @@ namespace nrl {
         empty_message_fg = bg;
       }
 
-      if (initial_row + std::max(1zu, select_options.size()) - 1 + cur_frame_lines > term_rows) {
+      auto fixed_rows = scr_mgr->get_fixed_rows();
+      if (initial_row + std::max(1zu, select_options.size()) - 1 + cur_frame_lines + fixed_rows > term_rows) {
         std::string outs = "\e[m";
-        auto nscrolled = initial_row + std::max(1zu, select_options.size()) - 1 + cur_frame_lines - term_rows;
+        auto nscrolled = initial_row + std::max(1zu, select_options.size()) - 1 + cur_frame_lines + fixed_rows - term_rows;
         // std::format_to(std::back_inserter(outs), "\e[{}S", nscrolled);
         initial_row -= nscrolled;
 
