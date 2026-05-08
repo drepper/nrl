@@ -1025,9 +1025,9 @@ namespace nrl {
       if (s.text_default_fg != terminal::info::color{})
         iov[niov++] = {const_cast<char*>("\e[m"), 3};
 
-      std::string clearbuf;
+      // std::string clearbuf;
       if (s.select_options.size() > 1) {
-        move_to_str(clearbuf, s, 0, s.max_lines + 1);
+        move_to(s, 0, s.max_lines + 1);
         // Delete menu lines and turn cursor back on.
         // std::format_to(std::back_inserter(clearbuf), "\e[{}M\e[?25h", s.select_options.size() - 1);
         // iov[niov++] = {clearbuf.data(), clearbuf.size()};
