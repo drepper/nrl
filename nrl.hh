@@ -78,12 +78,18 @@ namespace nrl {
     void set_prompt(const std::string_view s);
     void set_prompt(string_callback prompt_fct);
 
+    void set_answer(std::string&& s);
+    void set_answer(const char* s) { return set_answer(std::string_view{s}); }
+    void set_answer(const std::string_view s);
+    void set_answer(string_callback prompt_fct);
+
     std::vector<uint8_t> buffer{};
     std::vector<unsigned> line_offset{0};
     size_t filled = 0;
     size_t returned = 0;
     size_t max_lines = 1;
-    std::variant<std::string, string_callback> prompt{""};
+    std::variant<std::monostate, std::string, string_callback> prompt{};
+    std::variant<std::monostate, std::string, string_callback> answer{};
 
     std::string empty_message{};
     terminal::info::color empty_message_fg{};

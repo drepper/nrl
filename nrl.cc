@@ -1,4 +1,6 @@
 #include "nrl.hh"
+#include <string>
+#include <variant>
 
 #if defined __cpp_modules && __cpp_modules >= 201810L
 import std;
@@ -281,9 +283,9 @@ namespace nrl {
     }
 
 
-    void recompute_line_offset(handle& s, int r)
+    void recompute_line_offset(handle& s, int r, size_t startcol)
     {
-      unsigned avail = s.term_cols - (r == 0 ? s.prompt_len : 0);
+      unsigned avail = s.term_cols - (r == 0 ? startcol : 0);
       s.line_offset.resize(r + 1);
       auto o = s.line_offset[r];
       while (o < s.buffer.size()) {
@@ -295,6 +297,12 @@ namespace nrl {
         o = next;
         avail = s.term_cols;
       }
+    }
+
+
+    void recompute_line_offset(handle& s, int r)
+    {
+      return recompute_line_offset(s, r, s.prompt_len);
     }
 
 
@@ -615,23 +623,34 @@ namespace nrl {
     }
 
 
-    void redisplay(handle& s)
+    void redisplay(handle& s, bool final = false)
     {
+      std::string answer_str;
+      if (final && std::holds_alternative<std::monostate>(s.answer)) {
+        if (std::holds_alternative<std::string>(s.answer))
+          answer_str = std::get<std::string>(s.answer);
+        else
+          answer_str = std::get<handle::string_callback>(s.answer)();
+      }
+
       [[maybe_unused]] auto old_nlines = s.line_offset.size();
-      s.pos_x = s.prompt_len;
+      s.pos_x = final ? 0 : s.prompt_len;
       s.pos_y = 0;
-      recompute_line_offset(s, 0);
+      recompute_line_offset(s, 0, answer_str.empty() ? s.prompt_len : nonescape_len(answer_str));
       // clang-format off
       char movbuf[40];
       size_t nmovbuf = move_to_buf(movbuf, sizeof(movbuf), s, s.pos_x, s.pos_y);
-      std::array<iovec, 6> iov
+      std::array<iovec, 7> iov
       {
-        {{movbuf, nmovbuf},
-        {s.buffer.data(), s.buffer.size()},
-        {const_cast<char*>("\e[K"), 3}},
+        {{movbuf, nmovbuf}},
       };
       // clang-format on
-      size_t niov = 3;
+      size_t niov = 1;
+      iov[niov++] = {answer_str.data(), answer_str.size()};
+      if (! answer_str.empty())
+        iov[niov++] = {answer_str.data(), answer_str.size()};
+      iov[niov++] = {s.buffer.data(), s.buffer.size()};
+      iov[niov++] = {const_cast<char*>("\e[K"), 3};
       std::string clear;
       if (s.max_lines > s.line_offset.size()) {
         clear = std::format("\n\e[m\e[{}M", s.max_lines - s.line_offset.size());
@@ -1142,6 +1161,24 @@ namespace nrl {
   }
 
 
+  void handle::set_answer(std::string&& s)
+  {
+    answer = std::move(s);
+  }
+
+
+  void handle::set_answer(const std::string_view s)
+  {
+    answer = std::string(s);
+  }
+
+
+  void handle::set_answer(string_callback answer_fct)
+  {
+    answer = answer_fct;
+  }
+
+
   std::string_view handle::read()
   {
     the_loop(*this);
@@ -1173,7 +1210,7 @@ namespace nrl {
 
       if (std::holds_alternative<std::string>(prompt))
         prompt_str = std::get<std::string>(prompt);
-      else
+      else if (std::holds_alternative<handle::string_callback>(prompt))
         prompt_str = std::get<handle::string_callback>(prompt)();
 
       prompt_len = nonescape_len(prompt_str);
