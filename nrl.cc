@@ -710,10 +710,10 @@ namespace nrl {
       if (msg.empty())
         return;
 
-      auto colon = std::format("\e[38;2;{};{};{}m", s.empty_message_fg.r, s.empty_message_fg.g, s.empty_message_fg.b);
+      auto colon = std::format("\e[38;2;{};{};{};48;2;{};{};{}m", s.empty_message_fg.r, s.empty_message_fg.g, s.empty_message_fg.b, s.text_default_bg.r, s.text_default_bg.g, s.text_default_bg.b);
       std::string coloff;
-      if (s.text_default_fg != terminal::info::color{})
-        coloff = std::format("\e[38;2;{};{};{}m", s.text_default_fg.r, s.text_default_fg.g, s.text_default_fg.b);
+      if (! s.colsel.empty())
+        coloff = s.colsel;
       else
         coloff = "\e[m";
       char movebuf[40];
