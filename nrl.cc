@@ -707,15 +707,18 @@ namespace nrl {
 
     void show_empty_message(handle& s, std::string& msg)
     {
-      if (msg.empty())
-        return;
-
-      auto colon = std::format("\e[38;2;{};{};{};48;2;{};{};{}m", s.empty_message_fg.r, s.empty_message_fg.g, s.empty_message_fg.b, s.text_default_bg.r, s.text_default_bg.g, s.text_default_bg.b);
       std::string coloff;
       if (! s.colsel.empty())
         coloff = s.colsel;
       else
         coloff = "\e[m";
+
+      if (msg.empty()) {
+        ::write(s.fd, coloff.data(), coloff.size());
+        return;
+      }
+
+      auto colon = std::format("\e[38;2;{};{};{};48;2;{};{};{}m", s.empty_message_fg.r, s.empty_message_fg.g, s.empty_message_fg.b, s.text_default_bg.r, s.text_default_bg.g, s.text_default_bg.b);
       char movebuf[40];
       auto nmovebuf = move_to_buf(movebuf, sizeof(movebuf), s, s.pos_x, s.pos_y);
       // clang-format off
