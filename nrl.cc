@@ -1357,4 +1357,11 @@ namespace nrl {
     }
   }
 
+
+  void handle::restore_color()
+  {
+    if (! colsel.empty())
+      ::write(fd, colsel.data(), colsel.size());
+  }
+
 } // namespace nrl

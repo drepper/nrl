@@ -71,6 +71,8 @@ namespace nrl {
 
     void adjust_start(int delta) { initial_row += delta; }
 
+    void restore_color();
+
     bool active_p() const { return term_state == state::closed || term_state == state::open; }
 
     using string_callback = const char* (*) ();
