@@ -69,6 +69,8 @@ namespace nrl {
     std::expected<std::string_view, bool> process(::epoll_event& epev);
     void redraw();
 
+    void adjust_start(int delta) { initial_row += delta; }
+
     bool active_p() const { return term_state == state::closed || term_state == state::open; }
 
     using string_callback = const char* (*) ();
